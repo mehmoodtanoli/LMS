@@ -5,7 +5,7 @@ dotenv.config();
 const REQUIRED_ENV_VARS = [
   "NODE_ENV",
   "PORT",
-  "MONGODB_URI",
+  "DATABASE_URL",
   "JWT_SECRET",
   "JWT_EXPIRES_IN",
 ];
@@ -43,7 +43,7 @@ const validatedPort = validatePort();
 const env = Object.freeze({
   nodeEnv: process.env.NODE_ENV,
   port: validatedPort,
-  mongoUri: process.env.MONGODB_URI,
+  databaseUrl: process.env.DATABASE_URL,
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN,
   isProduction: process.env.NODE_ENV === "production",

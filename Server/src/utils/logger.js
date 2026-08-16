@@ -8,8 +8,6 @@ const SENSITIVE_KEYS = [
   "jwtsecret",
   "secret",
   "authorization",
-  "mongodburi",
-  "mongouri",
   "apikey",
 ];
 

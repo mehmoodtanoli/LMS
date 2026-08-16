@@ -1,11 +1,11 @@
 import app from "./app.js";
 import env from "./config/env.js";
-import connectDB from "./config/db.js";
+import prisma from "./config/prisma.js";
 import logger from "./utils/logger.js";
 
 async function startServer() {
   try {
-    await connectDB();
+    await prisma.$connect();
 
     app.listen(env.port, () => {
       logger.info(
