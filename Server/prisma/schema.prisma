@@ -6,3 +6,209 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+model Laboratory {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users           User[]
+  patients        Patient[]
+  testDefinitions TestDefinition[]
+  testOrders      TestOrder[]
+  reports         Report[]
+  payments        Payment[]
+
+  @@map("laboratories")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+
+  laboratoryId String?     @db.Uuid
+  laboratory   Laboratory? @relation(fields: [laboratoryId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([laboratoryId])
+  @@map("users")
+}
+
+model Patient {
+  id           String     @id @default(uuid()) @db.Uuid
+  laboratoryId String     @db.Uuid
+  laboratory   Laboratory @relation(fields: [laboratoryId], references: [id])
+
+  name     String
+  fullName String?
+  phone    String?
+  age      Int
+  gender   Gender
+  address  String?
+  cnic     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  testOrders TestOrder[]
+
+  @@unique([laboratoryId, cnic])
+  @@index([laboratoryId, phone])
+  @@map("patients")
+}
+
+model TestDefinition {
+  id           String     @id @default(uuid()) @db.Uuid
+  laboratoryId String     @db.Uuid
+  laboratory   Laboratory @relation(fields: [laboratoryId], references: [id])
+  code         String
+  name         String
+  description  String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  orderedTestItems OrderedTestItem[]
+
+  @@unique([laboratoryId, code])
+  @@index([laboratoryId])
+  @@map("test_definitions")
+}
+
+model TestOrder {
+  id           String          @id @default(uuid()) @db.Uuid
+  laboratoryId String          @db.Uuid
+  patientId    String          @db.Uuid
+  status       TestOrderStatus @default(PENDING)
+  notes        String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  laboratory Laboratory @relation(fields: [laboratoryId], references: [id])
+  patient    Patient    @relation(fields: [patientId], references: [id])
+
+  orderedTestItems OrderedTestItem[]
+  reports          Report[]
+  payments         Payment[]
+
+  @@index([laboratoryId])
+  @@index([patientId])
+  @@index([laboratoryId, patientId])
+  @@map("test_orders")
+}
+
+model OrderedTestItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  orderId          String   @db.Uuid
+  testDefinitionId String   @db.Uuid
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  order          TestOrder      @relation(fields: [orderId], references: [id])
+  testDefinition TestDefinition @relation(fields: [testDefinitionId], references: [id])
+  result         Result?
+
+  @@unique([orderId, testDefinitionId])
+  @@index([orderId])
+  @@index([testDefinitionId])
+  @@map("ordered_test_items")
+}
+
+model Result {
+  id                String       @id @default(uuid()) @db.Uuid
+  orderedTestItemId String       @unique @db.Uuid
+  status            ResultStatus @default(PENDING)
+  value             Json?
+  unit              String?
+  referenceRange    String?
+  interpretation    String?
+  notes             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  orderedTestItem OrderedTestItem @relation(fields: [orderedTestItemId], references: [id])
+
+  @@map("results")
+}
+
+model Report {
+  id               String       @id @default(uuid()) @db.Uuid
+  laboratoryId     String       @db.Uuid
+  orderId          String       @db.Uuid
+  status           ReportStatus @default(DRAFT)
+  title            String?
+  snapshot         Json?
+  version          Int          @default(1)
+  previousReportId String?      @db.Uuid
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  laboratory     Laboratory @relation(fields: [laboratoryId], references: [id])
+  order          TestOrder  @relation(fields: [orderId], references: [id])
+  previousReport Report?    @relation("ReportHistory", fields: [previousReportId], references: [id])
+  amendedReports Report[]   @relation("ReportHistory")
+
+  @@index([laboratoryId, orderId])
+  @@map("reports")
+}
+
+model Payment {
+  id           String        @id @default(uuid()) @db.Uuid
+  laboratoryId String        @db.Uuid
+  orderId      String        @db.Uuid
+  status       PaymentStatus @default(UNPAID)
+  amount       Decimal       @db.Decimal(12, 2)
+  paidAt       DateTime?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  laboratory Laboratory @relation(fields: [laboratoryId], references: [id])
+  order      TestOrder  @relation(fields: [orderId], references: [id])
+
+  @@index([laboratoryId, orderId])
+  @@map("payments")
+}
+
+enum UserRole {
+  SUPERADMIN
+  LAB_ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum TestOrderStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ResultStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FINALIZED
+}
+
+enum ReportStatus {
+  DRAFT
+  FINAL
+  AMENDED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  REFUNDED
+}
