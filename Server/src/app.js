@@ -8,6 +8,7 @@ import errorHandlerMiddleware from "./middlewares/errorHandler.middleware.js";
 import authRouter from "./routes/auth.route.js";
 import patientRouter from "./routes/patient.route.js";
 import testRouter from "./routes/test.route.js";
+import testOrderRouter from "./routes/test-order.route.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRouter);
 app.use("/api/patients", patientRouter);
 app.use("/api/tests", testRouter);
+app.use("/api/test-orders", testOrderRouter);
 
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
