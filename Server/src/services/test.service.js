@@ -93,7 +93,11 @@ function buildTestData(data) {
   if (data.description !== undefined) {
     const description = normalizeOptionalString(data.description);
 
-    if (data.description !== null && data.description !== undefined && !description) {
+    if (
+      data.description !== null &&
+      data.description !== undefined &&
+      !description
+    ) {
       throw new ApiError(400, "description cannot be empty if provided.", {
         field: "description",
       });
@@ -139,11 +143,23 @@ async function resolveLaboratoryIdForCreate({ user, laboratoryId }) {
 
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
-    throw new ApiError(409, "A test definition with the same code already exists in this laboratory.", {
-      fields: error.meta?.target ?? null,
-    });
+    throw new ApiError(
+      409,
+      "A test definition with the same code already exists in this laboratory.",
+      {
+        fields: error.meta?.target ?? null,
+      },
+    );
   }
-
+  if (error?.code === "P2003") {
+    throw new ApiError(
+      409,
+      "This test definition cannot be deleted because related records already exist.",
+      {
+        field: error.meta?.field_name ?? null,
+      },
+    );
+  }
   if (error?.code === "P2025") {
     throw new ApiError(404, "Test definition not found.");
   }
@@ -240,7 +256,9 @@ async function updateTestDefinition({ user, testId, data }) {
     ...buildAccessibleWhere(user),
   };
 
-  const existingTestDefinition = await prisma.testDefinition.findFirst({ where });
+  const existingTestDefinition = await prisma.testDefinition.findFirst({
+    where,
+  });
 
   if (!existingTestDefinition) {
     throw new ApiError(404, "Test definition not found.");

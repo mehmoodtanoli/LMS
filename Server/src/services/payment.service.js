@@ -139,6 +139,9 @@ function normalizePaymentAmount(value) {
     throw new ApiError(400, "amount is required.", { field: "amount" });
   }
 
+  let numericValue;
+  let normalizedValue;
+
   if (typeof value === "string") {
     const trimmedValue = value.trim();
 
@@ -146,12 +149,25 @@ function normalizePaymentAmount(value) {
       throw new ApiError(400, "amount is required.", { field: "amount" });
     }
 
-    return trimmedValue;
+    numericValue = Number(trimmedValue);
+    normalizedValue = trimmedValue;
+  } else if (typeof value === "number") {
+    numericValue = value;
+    normalizedValue = value;
+  } else {
+    throw new ApiError(400, "amount must be a positive number.", {
+      field: "amount",
+    });
   }
 
-  return value;
-}
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    throw new ApiError(400, "amount must be a positive number.", {
+      field: "amount",
+    });
+  }
 
+  return normalizedValue;
+}
 function buildPaymentData(data) {
   const paymentData = {};
 
