@@ -17,7 +17,14 @@ function sanitizeUser(user) {
   return safeUser;
 }
 
-async function registerUser({ email, password, laboratoryId = null }) {
+async function registerUser({ actor, email, password, laboratoryId = null }) {
+  if (!actor || actor.role !== "SUPERADMIN") {
+    throw new ApiError(
+      403,
+      "Only SUPERADMIN users can register new laboratory accounts.",
+    );
+  }
+
   const normalizedEmail =
     typeof email === "string" ? email.trim().toLowerCase() : "";
 

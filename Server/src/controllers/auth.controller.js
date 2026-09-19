@@ -8,7 +8,12 @@ import {
 const register = async (req, res) => {
   const { email, password, laboratoryId } = req.body;
 
-  const user = await registerUser({ email, password, laboratoryId });
+ const user = await registerUser({
+   actor: req.user,
+   email,
+   password,
+   laboratoryId,
+ });
 
   const response = new ApiResponse(201, "User registered successfully.", {
     user,
