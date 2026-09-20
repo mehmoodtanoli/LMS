@@ -372,11 +372,16 @@ async function updateResult({ user, resultId, data }) {
     },
     select: {
       id: true,
+      status: true,
     },
   });
 
   if (!existingResult) {
     throw new ApiError(404, "Result not found.");
+  }
+
+  if (existingResult.status === "FINALIZED") {
+    throw new ApiError(409, "This result is finalized and cannot be modified.");
   }
 
   const resultData = buildResultData(data);
