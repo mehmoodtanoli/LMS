@@ -119,6 +119,10 @@ async function loginUser({ email, password }) {
     throw new ApiError(401, "Invalid email or password.");
   }
 
+  if (!user.isActive) {
+    throw new ApiError(403, "This account has been deactivated.");
+  }
+
   const token = signToken({
     userId: user.id,
     email: user.email,

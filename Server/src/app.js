@@ -12,6 +12,9 @@ import testOrderRouter from "./routes/test-order.route.js";
 import resultRouter from "./routes/result.route.js";
 import reportRouter from "./routes/report.route.js";
 import paymentRouter from "./routes/payment.route.js";
+import laboratoryRouter from "./routes/laboratory.route.js";
+import userRouter from "./routes/user.route.js";
+import dashboardRouter from "./routes/dashboard.route.js";
 
 const app = express();
 
@@ -38,6 +41,9 @@ app.use("/api/test-orders", testOrderRouter);
 app.use("/api/results", resultRouter);
 app.use("/api/reports", reportRouter);
 app.use("/api/payments", paymentRouter);
+app.use("/api/admin/laboratories", laboratoryRouter);
+app.use("/api/admin/users", userRouter);
+app.use("/api/admin/dashboard", dashboardRouter);
 
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);

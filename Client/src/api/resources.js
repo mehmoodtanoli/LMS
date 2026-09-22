@@ -19,3 +19,12 @@ export const reportsApi = { ...resource("/reports") };
 delete reportsApi.update; delete reportsApi.remove;
 export const paymentsApi = { ...resource("/payments") };
 delete paymentsApi.update; delete paymentsApi.remove;
+const adminResource = (path) => ({
+  ...resource(path),
+  setStatus: (id, isActive) => client.patch(`${path}/${id}/status`, { isActive }),
+});
+export const laboratoriesApi = { ...adminResource("/admin/laboratories") };
+delete laboratoriesApi.remove;
+export const adminUsersApi = { ...adminResource("/admin/users") };
+delete adminUsersApi.remove;
+export const adminDashboardApi = { summary: () => client.get("/admin/dashboard") };
