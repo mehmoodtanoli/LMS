@@ -3,7 +3,14 @@ import ApiError from "../utils/ApiError.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const VALID_ORDER_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
+
+const VALID_ORDER_STATUSES = [
+  "PENDING",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "CANCELLED",
+];
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -16,12 +23,14 @@ const TEST_ORDER_SELECT = {
   notes: true,
   createdAt: true,
   updatedAt: true,
+
   laboratory: {
     select: {
       id: true,
       name: true,
     },
   },
+
   patient: {
     select: {
       id: true,
@@ -31,18 +40,34 @@ const TEST_ORDER_SELECT = {
       laboratoryId: true,
     },
   },
+
   orderedTestItems: {
     select: {
       id: true,
       notes: true,
+
       testDefinition: {
         select: {
           id: true,
           code: true,
           name: true,
           laboratoryId: true,
+
+          parameters: {
+            orderBy: {
+              order: "asc",
+            },
+            select: {
+              id: true,
+              name: true,
+              unit: true,
+              referenceRange: true,
+              order: true,
+            },
+          },
         },
       },
+
       result: {
         select: {
           id: true,
@@ -97,6 +122,7 @@ function normalizeOrderStatus(value) {
 function parsePagination(query) {
   const pageValue = query?.page ?? DEFAULT_PAGE;
   const limitValue = query?.limit ?? DEFAULT_LIMIT;
+
   const page = Number(pageValue);
   const limit = Number(limitValue);
 
@@ -141,7 +167,10 @@ function getLabAdminLaboratoryId(user) {
   const laboratoryId = assertLabAdminScope(user);
 
   if (!laboratoryId) {
-    throw new ApiError(403, "LAB_ADMIN users must be assigned to a laboratory before managing test orders.");
+    throw new ApiError(
+      403,
+      "LAB_ADMIN users must be assigned to a laboratory before managing test orders.",
+    );
   }
 
   return laboratoryId;
@@ -183,27 +212,43 @@ function buildOrderUpdateData(data) {
 
 function assertNoImmutableOverrides(data) {
   const immutableFields = ["patientId", "testDefinitionId", "laboratoryId"];
-  const providedFields = immutableFields.filter((field) => data[field] !== undefined);
+
+  const providedFields = immutableFields.filter(
+    (field) => data[field] !== undefined,
+  );
 
   if (providedFields.length > 0) {
-    throw new ApiError(400, "patientId, testDefinitionId, and laboratoryId cannot be changed on an existing order.", {
-      fields: providedFields,
-    });
+    throw new ApiError(
+      400,
+      "patientId, testDefinitionId, and laboratoryId cannot be changed on an existing order.",
+      {
+        fields: providedFields,
+      },
+    );
   }
 }
 
 function handlePrismaError(error) {
   if (error?.code === "P2003") {
-    throw new ApiError(409, "This test order cannot be deleted because related records already exist.", {
-      field: error.meta?.field_name ?? null,
-    });
+    throw new ApiError(
+      409,
+      "This test order cannot be deleted because related records already exist.",
+      {
+        field: error.meta?.field_name ?? null,
+      },
+    );
   }
 
   if (
     typeof error?.message === "string" &&
-    error.message.includes("violates RESTRICT setting of foreign key constraint")
+    error.message.includes(
+      "violates RESTRICT setting of foreign key constraint",
+    )
   ) {
-    throw new ApiError(409, "This test order cannot be deleted because related records already exist.");
+    throw new ApiError(
+      409,
+      "This test order cannot be deleted because related records already exist.",
+    );
   }
 
   if (error?.code === "P2025") {
@@ -216,10 +261,19 @@ function handlePrismaError(error) {
 async function findAccessiblePatient({ user, patientId }) {
   assertUuid(patientId, "patientId");
 
-  const laboratoryId = user.role === "LAB_ADMIN" ? getLabAdminLaboratoryId(user) : null;
+  const laboratoryId =
+    user.role === "LAB_ADMIN" ? getLabAdminLaboratoryId(user) : null;
 
   const patient = await prisma.patient.findFirst({
-    where: laboratoryId ? { id: patientId, laboratoryId } : { id: patientId },
+    where: laboratoryId
+      ? {
+          id: patientId,
+          laboratoryId,
+        }
+      : {
+          id: patientId,
+        },
+
     select: {
       id: true,
       laboratoryId: true,
@@ -239,15 +293,45 @@ async function findAccessiblePatient({ user, patientId }) {
 async function findAccessibleTestDefinition({ user, testDefinitionId }) {
   assertUuid(testDefinitionId, "testDefinitionId");
 
-  const laboratoryId = user.role === "LAB_ADMIN" ? getLabAdminLaboratoryId(user) : null;
+  const laboratoryId =
+    user.role === "LAB_ADMIN" ? getLabAdminLaboratoryId(user) : null;
 
   const testDefinition = await prisma.testDefinition.findFirst({
-    where: laboratoryId ? { id: testDefinitionId, laboratoryId } : { id: testDefinitionId },
+    where: laboratoryId
+      ? {
+          id: testDefinitionId,
+          OR: [
+            {
+              laboratoryId,
+            },
+            {
+              laboratoryId: null,
+            },
+          ],
+        }
+      : {
+          id: testDefinitionId,
+        },
+
     select: {
       id: true,
       laboratoryId: true,
       code: true,
       name: true,
+
+      parameters: {
+        orderBy: {
+          order: "asc",
+        },
+
+        select: {
+          id: true,
+          name: true,
+          unit: true,
+          referenceRange: true,
+          order: true,
+        },
+      },
     },
   });
 
@@ -259,10 +343,19 @@ async function findAccessibleTestDefinition({ user, testDefinitionId }) {
 }
 
 function assertSameLaboratory(patient, testDefinition) {
+  // Global test templates can be used by any laboratory.
+  if (testDefinition.laboratoryId === null) {
+    return;
+  }
+
   if (patient.laboratoryId !== testDefinition.laboratoryId) {
-    throw new ApiError(400, "Patient and test definition must belong to the same laboratory.", {
-      fields: ["patientId", "testDefinitionId"],
-    });
+    throw new ApiError(
+      400,
+      "Patient and test definition must belong to the same laboratory.",
+      {
+        fields: ["patientId", "testDefinitionId"],
+      },
+    );
   }
 }
 
@@ -271,7 +364,9 @@ async function createTestOrder({ user, data }) {
   const testDefinitionId = normalizeString(data.testDefinitionId);
 
   if (!patientId) {
-    throw new ApiError(400, "patientId is required.", { field: "patientId" });
+    throw new ApiError(400, "patientId is required.", {
+      field: "patientId",
+    });
   }
 
   if (!testDefinitionId) {
@@ -280,24 +375,38 @@ async function createTestOrder({ user, data }) {
     });
   }
 
-  const patient = await findAccessiblePatient({ user, patientId });
-  const testDefinition = await findAccessibleTestDefinition({ user, testDefinitionId });
+  const patient = await findAccessiblePatient({
+    user,
+    patientId,
+  });
+
+  const testDefinition = await findAccessibleTestDefinition({
+    user,
+    testDefinitionId,
+  });
+
   assertSameLaboratory(patient, testDefinition);
 
   const requestedLaboratoryId = normalizeOptionalString(data.laboratoryId);
+
   const derivedLaboratoryId = patient.laboratoryId;
 
   if (requestedLaboratoryId !== undefined) {
     assertUuid(requestedLaboratoryId, "laboratoryId");
 
     if (requestedLaboratoryId !== derivedLaboratoryId) {
-      throw new ApiError(400, "laboratoryId must match the patient and test definition laboratory.", {
-        field: "laboratoryId",
-      });
+      throw new ApiError(
+        400,
+        "laboratoryId must match the patient and test definition laboratory.",
+        {
+          field: "laboratoryId",
+        },
+      );
     }
   }
 
-  const notes = data.notes === undefined ? undefined : normalizeOptionalString(data.notes);
+  const notes =
+    data.notes === undefined ? undefined : normalizeOptionalString(data.notes);
 
   if (data.notes !== null && data.notes !== undefined && !notes) {
     throw new ApiError(400, "notes cannot be empty if provided.", {
@@ -305,21 +414,25 @@ async function createTestOrder({ user, data }) {
     });
   }
 
-  const status = data.status === undefined ? undefined : normalizeOrderStatus(data.status);
+  const status =
+    data.status === undefined ? undefined : normalizeOrderStatus(data.status);
 
   try {
     return await prisma.testOrder.create({
       data: {
         laboratoryId: derivedLaboratoryId,
         patientId,
+
         ...(status ? { status } : {}),
         ...(notes !== undefined ? { notes } : {}),
+
         orderedTestItems: {
           create: {
             testDefinitionId,
           },
         },
       },
+
       select: TEST_ORDER_SELECT,
     });
   } catch (error) {
@@ -329,24 +442,32 @@ async function createTestOrder({ user, data }) {
 
 async function listTestOrders({ user, query }) {
   const where = buildListWhere(user);
+
   const { page, limit } = parsePagination(query);
   const skip = (page - 1) * limit;
 
   const [orders, total] = await prisma.$transaction([
     prisma.testOrder.findMany({
       where,
+
       orderBy: {
         createdAt: "desc",
       },
+
       skip,
       take: limit,
+
       select: TEST_ORDER_SELECT,
     }),
-    prisma.testOrder.count({ where }),
+
+    prisma.testOrder.count({
+      where,
+    }),
   ]);
 
   return {
     orders,
+
     meta: {
       page,
       limit,
@@ -364,6 +485,7 @@ async function getTestOrderById({ user, orderId }) {
       id: orderId,
       ...buildListWhere(user),
     },
+
     select: TEST_ORDER_SELECT,
   });
 
@@ -376,6 +498,7 @@ async function getTestOrderById({ user, orderId }) {
 
 async function updateTestOrder({ user, orderId, data }) {
   assertUuid(orderId, "id");
+
   assertNoImmutableOverrides(data);
 
   const order = await prisma.testOrder.findFirst({
@@ -383,6 +506,7 @@ async function updateTestOrder({ user, orderId, data }) {
       id: orderId,
       ...buildListWhere(user),
     },
+
     select: {
       id: true,
     },
@@ -395,13 +519,20 @@ async function updateTestOrder({ user, orderId, data }) {
   const updateData = buildOrderUpdateData(data);
 
   if (Object.keys(updateData).length === 0) {
-    throw new ApiError(400, "At least one editable order field must be provided.");
+    throw new ApiError(
+      400,
+      "At least one editable order field must be provided.",
+    );
   }
 
   try {
     return await prisma.testOrder.update({
-      where: { id: orderId },
+      where: {
+        id: orderId,
+      },
+
       data: updateData,
+
       select: TEST_ORDER_SELECT,
     });
   } catch (error) {
@@ -417,6 +548,7 @@ async function deleteTestOrder({ user, orderId }) {
       id: orderId,
       ...buildListWhere(user),
     },
+
     select: {
       id: true,
     },
@@ -428,7 +560,9 @@ async function deleteTestOrder({ user, orderId }) {
 
   try {
     await prisma.testOrder.delete({
-      where: { id: orderId },
+      where: {
+        id: orderId,
+      },
     });
   } catch (error) {
     handlePrismaError(error);

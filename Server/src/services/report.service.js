@@ -3,6 +3,7 @@ import ApiError from "../utils/ApiError.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const VALID_REPORT_STATUSES = ["DRAFT", "FINAL", "AMENDED"];
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -19,18 +20,21 @@ const REPORT_SELECT = {
   previousReportId: true,
   createdAt: true,
   updatedAt: true,
+
   laboratory: {
     select: {
       id: true,
       name: true,
     },
   },
+
   order: {
     select: {
       id: true,
       status: true,
       notes: true,
       laboratoryId: true,
+
       patient: {
         select: {
           id: true,
@@ -40,18 +44,34 @@ const REPORT_SELECT = {
           laboratoryId: true,
         },
       },
+
       orderedTestItems: {
         select: {
           id: true,
           notes: true,
+
           testDefinition: {
             select: {
               id: true,
               code: true,
               name: true,
               laboratoryId: true,
+
+              parameters: {
+                orderBy: {
+                  order: "asc",
+                },
+                select: {
+                  id: true,
+                  name: true,
+                  unit: true,
+                  referenceRange: true,
+                  order: true,
+                },
+              },
             },
           },
+
           result: {
             select: {
               id: true,
@@ -69,6 +89,7 @@ const REPORT_SELECT = {
       },
     },
   },
+
   previousReport: {
     select: {
       id: true,
@@ -134,6 +155,7 @@ function buildListWhere(user) {
 function parsePagination(query) {
   const pageValue = query?.page ?? DEFAULT_PAGE;
   const limitValue = query?.limit ?? DEFAULT_LIMIT;
+
   const page = Number(pageValue);
   const limit = Number(limitValue);
 
@@ -198,9 +220,13 @@ function buildReportData(data) {
 
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
-    throw new ApiError(409, "A report with this unique detail already exists.", {
-      fields: error.meta?.target ?? null,
-    });
+    throw new ApiError(
+      409,
+      "A report with this unique detail already exists.",
+      {
+        fields: error.meta?.target ?? null,
+      },
+    );
   }
 
   if (error?.code === "P2025") {
@@ -224,6 +250,7 @@ async function findAccessibleOrder({ user, orderId }) {
       : {
           id: orderId,
         },
+
     select: {
       id: true,
       laboratoryId: true,
@@ -231,12 +258,14 @@ async function findAccessibleOrder({ user, orderId }) {
       notes: true,
       createdAt: true,
       updatedAt: true,
+
       laboratory: {
         select: {
           id: true,
           name: true,
         },
       },
+
       patient: {
         select: {
           id: true,
@@ -246,18 +275,34 @@ async function findAccessibleOrder({ user, orderId }) {
           laboratoryId: true,
         },
       },
+
       orderedTestItems: {
         select: {
           id: true,
           notes: true,
+
           testDefinition: {
             select: {
               id: true,
               code: true,
               name: true,
               laboratoryId: true,
+
+              parameters: {
+                orderBy: {
+                  order: "asc",
+                },
+                select: {
+                  id: true,
+                  name: true,
+                  unit: true,
+                  referenceRange: true,
+                  order: true,
+                },
+              },
             },
           },
+
           result: {
             select: {
               id: true,
@@ -292,9 +337,13 @@ function buildReportSnapshot(order) {
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     },
+
     laboratory: order.laboratory,
+
     patient: order.patient,
+
     orderedTestItems: order.orderedTestItems,
+
     generatedAt: new Date().toISOString(),
   };
 }
@@ -303,15 +352,27 @@ async function createReport({ user, data }) {
   const orderId = normalizeString(data.orderId);
 
   if (!orderId) {
-    throw new ApiError(400, "orderId is required.", { field: "orderId" });
+    throw new ApiError(400, "orderId is required.", {
+      field: "orderId",
+    });
   }
 
-  const order = await findAccessibleOrder({ user, orderId });
+  const order = await findAccessibleOrder({
+    user,
+    orderId,
+  });
+
   const reportData = buildReportData(data);
 
   const latestReport = await prisma.report.findFirst({
-    where: { orderId },
-    orderBy: { version: "desc" },
+    where: {
+      orderId,
+    },
+
+    orderBy: {
+      version: "desc",
+    },
+
     select: {
       id: true,
       version: true,
@@ -330,6 +391,7 @@ async function createReport({ user, data }) {
         snapshot,
         ...reportData,
       },
+
       select: REPORT_SELECT,
     });
   } catch (error) {
@@ -345,18 +407,25 @@ async function listReports({ user, query }) {
   const [reports, total] = await prisma.$transaction([
     prisma.report.findMany({
       where,
+
       orderBy: {
         createdAt: "desc",
       },
+
       skip,
       take: limit,
+
       select: REPORT_SELECT,
     }),
-    prisma.report.count({ where }),
+
+    prisma.report.count({
+      where,
+    }),
   ]);
 
   return {
     reports,
+
     meta: {
       page,
       limit,
@@ -374,6 +443,7 @@ async function getReportById({ user, reportId }) {
       id: reportId,
       ...buildListWhere(user),
     },
+
     select: REPORT_SELECT,
   });
 

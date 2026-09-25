@@ -1,15 +1,227 @@
 import { useEffect, useState } from "react";
+
 import { ordersApi, patientsApi, testsApi } from "../api/resources";
+
 import { apiError } from "../api/client";
-import { useAuth } from "../auth/AuthContext";
-import { Empty, ErrorMessage, Loading, Status, date, patientName } from "../components/Common";
+
+import {
+  Empty,
+  ErrorMessage,
+  Loading,
+  Status,
+  date,
+  patientName,
+} from "../components/Common";
+
 export default function Orders() {
-  const { user } = useAuth();
-  const [patients, setPatients] = useState([]), [tests, setTests] = useState([]), [orders, setOrders] = useState([]), [selected, setSelected] = useState([]), [patientId, setPatientId] = useState(""), [notes, setNotes] = useState(""), [status, setStatus] = useState("PENDING"), [newTest, setNewTest] = useState({ code: "", name: "", description: "", laboratoryId: "" }), [error, setError] = useState(""), [busy, setBusy] = useState(true);
-  const load = () => { setBusy(true); Promise.all([patientsApi.list({ page: 1, limit: 100 }), testsApi.list({ page: 1, limit: 100 }), ordersApi.list({ page: 1, limit: 100 })]).then(([p, t, o]) => { setPatients(p.data.patients); setTests(t.data.tests); setOrders(o.data.orders); }).catch((e) => setError(apiError(e))).finally(() => setBusy(false)); }; useEffect(load, []);
-  const create = async (e) => { e.preventDefault(); if (!patientId || !selected.length) { setError("Select a patient and at least one test."); return; } setError(""); setBusy(true); try { await Promise.all(selected.map((testDefinitionId) => ordersApi.create({ patientId, testDefinitionId, status, ...(notes.trim() ? { notes: notes.trim() } : {}) }))); setSelected([]); setNotes(""); load(); } catch (err) { setError(apiError(err)); setBusy(false); } };
-  const changeStatus = async (id, next) => { try { await ordersApi.update(id, { status: next }); load(); } catch (e) { setError(apiError(e)); } };
-  const createTest = async (e) => { e.preventDefault(); setError(""); try { await testsApi.create({ code: newTest.code, name: newTest.name, ...(newTest.description.trim() ? { description: newTest.description.trim() } : {}), ...(user.role === "SUPERADMIN" ? { laboratoryId: newTest.laboratoryId } : {}) }); setNewTest({ code: "", name: "", description: "", laboratoryId: "" }); load(); } catch (err) { setError(apiError(err)); } };
-  const toggle = (id) => setSelected((items) => items.includes(id) ? items.filter((item) => item !== id) : [...items, id]);
-  return <><header className="page-header"><div><h1>Test orders</h1><p>Select all tests for one visit; each selection creates one backend order.</p></div></header><ErrorMessage error={error} /><details className="panel"><summary>Add test to catalog</summary><form className="form-grid catalog-form" onSubmit={createTest}><label>Code<input required value={newTest.code} onChange={(e) => setNewTest({ ...newTest, code: e.target.value })} /></label><label>Name<input required value={newTest.name} onChange={(e) => setNewTest({ ...newTest, name: e.target.value })} /></label><label>Description<input value={newTest.description} onChange={(e) => setNewTest({ ...newTest, description: e.target.value })} /></label>{user.role === "SUPERADMIN" && <label>Laboratory ID<input required value={newTest.laboratoryId} onChange={(e) => setNewTest({ ...newTest, laboratoryId: e.target.value })} /></label>}<div><button>Add test</button></div></form></details><form className="panel form-grid" onSubmit={create}><h2 className="full">Create patient visit</h2><label className="full">Patient<select required value={patientId} onChange={(e) => setPatientId(e.target.value)}><option value="">Choose patient</option>{patients.map((p) => <option value={p.id} key={p.id}>{patientName(p)} — {p.cnic}</option>)}</select></label><fieldset className="full"><legend>Tests</legend><div className="check-grid">{tests.map((test) => <label className="check" key={test.id}><input type="checkbox" checked={selected.includes(test.id)} onChange={() => toggle(test.id)} />{test.code} — {test.name}</label>)}</div>{!tests.length && <p>No test definitions are available.</p>}</fieldset><label>Starting status<select value={status} onChange={(e) => setStatus(e.target.value)}><option>PENDING</option><option>IN_PROGRESS</option><option>COMPLETED</option><option>CANCELLED</option></select></label><label>Notes<input value={notes} onChange={(e) => setNotes(e.target.value)} /></label><div className="full"><button disabled={busy || !tests.length}>{busy ? "Working…" : `Create ${selected.length || ""} order${selected.length === 1 ? "" : "s"}`}</button></div></form>{busy ? <Loading /> : orders.length ? <section className="panel"><h2>Recent orders</h2><table><thead><tr><th>Patient</th><th>Test</th><th>Status</th><th>Created</th><th /></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{patientName(order.patient)}</td><td>{order.orderedTestItems.map((i) => i.testDefinition.name).join(", ")}</td><td><Status value={order.status} /></td><td>{date(order.createdAt)}</td><td><select aria-label="Change order status" value={order.status} onChange={(e) => changeStatus(order.id, e.target.value)}><option>PENDING</option><option>IN_PROGRESS</option><option>COMPLETED</option><option>CANCELLED</option></select></td></tr>)}</tbody></table></section> : <Empty>No orders yet.</Empty>}</>;
+  const [patients, setPatients] = useState([]),
+    [tests, setTests] = useState([]),
+    [orders, setOrders] = useState([]),
+    [selected, setSelected] = useState([]),
+    [patientId, setPatientId] = useState(""),
+    [notes, setNotes] = useState(""),
+    [status, setStatus] = useState("PENDING"),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(true);
+
+  const load = () => {
+    setBusy(true);
+
+    Promise.all([
+      patientsApi.list({ page: 1, limit: 100 }),
+      testsApi.list({ page: 1, limit: 100 }),
+      ordersApi.list({ page: 1, limit: 100 }),
+    ])
+      .then(([p, t, o]) => {
+        setPatients(p.data.patients);
+        setTests(t.data.tests);
+        setOrders(o.data.orders);
+      })
+      .catch((e) => setError(apiError(e)))
+      .finally(() => setBusy(false));
+  };
+
+  useEffect(load, []);
+
+  const create = async (e) => {
+    e.preventDefault();
+
+    if (!patientId || !selected.length) {
+      setError("Select a patient and at least one test.");
+      return;
+    }
+
+    setError("");
+    setBusy(true);
+
+    try {
+      await Promise.all(
+        selected.map((testDefinitionId) =>
+          ordersApi.create({
+            patientId,
+            testDefinitionId,
+            status,
+            ...(notes.trim() ? { notes: notes.trim() } : {}),
+          }),
+        ),
+      );
+
+      setSelected([]);
+      setNotes("");
+      load();
+    } catch (err) {
+      setError(apiError(err));
+      setBusy(false);
+    }
+  };
+
+  const changeStatus = async (id, next) => {
+    try {
+      await ordersApi.update(id, { status: next });
+      load();
+    } catch (e) {
+      setError(apiError(e));
+    }
+  };
+
+  const toggle = (id) =>
+    setSelected((items) =>
+      items.includes(id) ? items.filter((item) => item !== id) : [...items, id],
+    );
+
+  return (
+    <>
+      <header className="page-header">
+        <div>
+          <h1>Test orders</h1>
+          <p>
+            Select all tests for one visit; each selection creates one backend
+            order.
+          </p>
+        </div>
+      </header>
+
+      <ErrorMessage error={error} />
+
+      <form className="panel form-grid" onSubmit={create}>
+        <h2 className="full">Create patient visit</h2>
+
+        <label className="full">
+          Patient
+          <select
+            required
+            value={patientId}
+            onChange={(e) => setPatientId(e.target.value)}
+          >
+            <option value="">Choose patient</option>
+
+            {patients.map((p) => (
+              <option value={p.id} key={p.id}>
+                {patientName(p)} — {p.cnic}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <fieldset className="full">
+          <legend>Tests</legend>
+
+          <div className="check-grid">
+            {tests.map((test) => (
+              <label className="check" key={test.id}>
+                <input
+                  type="checkbox"
+                  checked={selected.includes(test.id)}
+                  onChange={() => toggle(test.id)}
+                />
+                {test.code} — {test.name}
+              </label>
+            ))}
+          </div>
+
+          {!tests.length && <p>No test definitions are available.</p>}
+        </fieldset>
+
+        <label>
+          Starting status
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option>PENDING</option>
+            <option>IN_PROGRESS</option>
+            <option>COMPLETED</option>
+            <option>CANCELLED</option>
+          </select>
+        </label>
+
+        <label>
+          Notes
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </label>
+
+        <div className="full">
+          <button disabled={busy || !tests.length}>
+            {busy
+              ? "Working…"
+              : `Create ${selected.length || ""} order${
+                  selected.length === 1 ? "" : "s"
+                }`}
+          </button>
+        </div>
+      </form>
+
+      {busy ? (
+        <Loading />
+      ) : orders.length ? (
+        <section className="panel">
+          <h2>Recent orders</h2>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Patient</th>
+                <th>Test</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th />
+              </tr>
+            </thead>
+
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order.id}>
+                  <td>{patientName(order.patient)}</td>
+
+                  <td>
+                    {order.orderedTestItems
+                      .map((i) => i.testDefinition.name)
+                      .join(", ")}
+                  </td>
+
+                  <td>
+                    <Status value={order.status} />
+                  </td>
+
+                  <td>{date(order.createdAt)}</td>
+
+                  <td>
+                    <select
+                      aria-label="Change order status"
+                      value={order.status}
+                      onChange={(e) => changeStatus(order.id, e.target.value)}
+                    >
+                      <option>PENDING</option>
+                      <option>IN_PROGRESS</option>
+                      <option>COMPLETED</option>
+                      <option>CANCELLED</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : (
+        <Empty>No orders yet.</Empty>
+      )}
+    </>
+  );
 }

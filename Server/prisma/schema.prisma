@@ -8,56 +8,50 @@ datasource db {
 }
 
 model Laboratory {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users           User[]
+  id              String           @id @default(uuid()) @db.Uuid
+  name            String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  isActive        Boolean          @default(true)
   patients        Patient[]
+  payments        Payment[]
+  reports         Report[]
   testDefinitions TestDefinition[]
   testOrders      TestOrder[]
-  reports         Report[]
-  payments        Payment[]
+  users           User[]
 
   @@map("laboratories")
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
+  id           String      @id @default(uuid()) @db.Uuid
+  email        String      @unique
   passwordHash String
   role         UserRole
-  isActive     Boolean  @default(true)
-
   laboratoryId String?     @db.Uuid
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  isActive     Boolean     @default(true)
   laboratory   Laboratory? @relation(fields: [laboratoryId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
   @@index([laboratoryId])
   @@map("users")
 }
 
 model Patient {
-  id           String     @id @default(uuid()) @db.Uuid
-  laboratoryId String     @db.Uuid
-  laboratory   Laboratory @relation(fields: [laboratoryId], references: [id])
-
-  name     String
-  fullName String?
-  phone    String?
-  age      Int
-  gender   Gender
-  address  String?
-  cnic     String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  testOrders TestOrder[]
+  id           String      @id @default(uuid()) @db.Uuid
+  laboratoryId String      @db.Uuid
+  name         String
+  fullName     String?
+  phone        String?
+  age          Int
+  gender       Gender
+  address      String?
+  cnic         String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  laboratory   Laboratory  @relation(fields: [laboratoryId], references: [id])
+  testOrders   TestOrder[]
 
   @@unique([laboratoryId, cnic])
   @@index([laboratoryId, phone])
@@ -65,37 +59,51 @@ model Patient {
 }
 
 model TestDefinition {
-  id           String     @id @default(uuid()) @db.Uuid
-  laboratoryId String     @db.Uuid
-  laboratory   Laboratory @relation(fields: [laboratoryId], references: [id])
-  code         String
-  name         String
-  description  String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-
+  id               String            @id @default(uuid()) @db.Uuid
+  laboratoryId     String?           @db.Uuid
+  code             String
+  name             String
+  description      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   orderedTestItems OrderedTestItem[]
+  parameters       TestParameter[]
+  laboratory       Laboratory?       @relation(fields: [laboratoryId], references: [id])
 
   @@unique([laboratoryId, code])
   @@index([laboratoryId])
   @@map("test_definitions")
 }
 
+model TestParameter {
+  id               String         @id @default(uuid()) @db.Uuid
+  testDefinitionId String         @db.Uuid
+  name             String
+  unit             String?
+  referenceRange   String?
+  order            Int            @default(1)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  testDefinition   TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([testDefinitionId])
+  @@map("test_parameters")
+}
+
 model TestOrder {
-  id           String          @id @default(uuid()) @db.Uuid
-  laboratoryId String          @db.Uuid
-  patientId    String          @db.Uuid
-  status       TestOrderStatus @default(PENDING)
-  notes        String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-
-  laboratory Laboratory @relation(fields: [laboratoryId], references: [id])
-  patient    Patient    @relation(fields: [patientId], references: [id])
-
+  id               String            @id @default(uuid()) @db.Uuid
+  laboratoryId     String            @db.Uuid
+  patientId        String            @db.Uuid
+  status           TestOrderStatus   @default(PENDING)
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   orderedTestItems OrderedTestItem[]
-  reports          Report[]
   payments         Payment[]
+  reports          Report[]
+  laboratory       Laboratory        @relation(fields: [laboratoryId], references: [id])
+  patient          Patient           @relation(fields: [patientId], references: [id])
 
   @@index([laboratoryId])
   @@index([patientId])
@@ -104,16 +112,15 @@ model TestOrder {
 }
 
 model OrderedTestItem {
-  id               String   @id @default(uuid()) @db.Uuid
-  orderId          String   @db.Uuid
-  testDefinitionId String   @db.Uuid
+  id               String         @id @default(uuid()) @db.Uuid
+  orderId          String         @db.Uuid
+  testDefinitionId String         @db.Uuid
   notes            String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  order          TestOrder      @relation(fields: [orderId], references: [id])
-  testDefinition TestDefinition @relation(fields: [testDefinitionId], references: [id])
-  result         Result?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  order            TestOrder      @relation(fields: [orderId], references: [id])
+  testDefinition   TestDefinition @relation(fields: [testDefinitionId], references: [id])
+  result           Result?
 
   @@unique([orderId, testDefinitionId])
   @@index([orderId])
@@ -122,18 +129,17 @@ model OrderedTestItem {
 }
 
 model Result {
-  id                String       @id @default(uuid()) @db.Uuid
-  orderedTestItemId String       @unique @db.Uuid
-  status            ResultStatus @default(PENDING)
+  id                String          @id @default(uuid()) @db.Uuid
+  orderedTestItemId String          @unique @db.Uuid
+  status            ResultStatus    @default(PENDING)
   value             Json?
   unit              String?
   referenceRange    String?
   interpretation    String?
   notes             String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
-
-  orderedTestItem OrderedTestItem @relation(fields: [orderedTestItemId], references: [id])
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  orderedTestItem   OrderedTestItem @relation(fields: [orderedTestItemId], references: [id])
 
   @@map("results")
 }
@@ -149,11 +155,10 @@ model Report {
   previousReportId String?      @db.Uuid
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
-
-  laboratory     Laboratory @relation(fields: [laboratoryId], references: [id])
-  order          TestOrder  @relation(fields: [orderId], references: [id])
-  previousReport Report?    @relation("ReportHistory", fields: [previousReportId], references: [id])
-  amendedReports Report[]   @relation("ReportHistory")
+  laboratory       Laboratory   @relation(fields: [laboratoryId], references: [id])
+  order            TestOrder    @relation(fields: [orderId], references: [id])
+  previousReport   Report?      @relation("ReportHistory", fields: [previousReportId], references: [id])
+  amendedReports   Report[]     @relation("ReportHistory")
 
   @@index([laboratoryId, orderId])
   @@map("reports")
@@ -169,9 +174,8 @@ model Payment {
   notes        String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
-
-  laboratory Laboratory @relation(fields: [laboratoryId], references: [id])
-  order      TestOrder  @relation(fields: [orderId], references: [id])
+  laboratory   Laboratory    @relation(fields: [laboratoryId], references: [id])
+  order        TestOrder     @relation(fields: [orderId], references: [id])
 
   @@index([laboratoryId, orderId])
   @@map("payments")

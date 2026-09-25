@@ -16,6 +16,7 @@ const blank = {
   interpretation: "",
   notes: "",
   status: "COMPLETED",
+  paramValues: {},
 };
 
 export default function Results() {
@@ -43,36 +44,75 @@ export default function Results() {
   const open = (item, result) => {
     setError("");
     setEditing({ item, result });
-    setForm(
-      result
-        ? {
-            status: result.status,
-            value: result.value == null ? "" : JSON.stringify(result.value),
-            unit: result.unit || "",
-            referenceRange: result.referenceRange || "",
-            interpretation: result.interpretation || "",
-            notes: result.notes || "",
-          }
-        : blank,
-    );
+    const parameters = item.testDefinition.parameters;
+    const hasParams = Array.isArray(parameters) && parameters.length > 0;
+    if (hasParams) {
+      const existingValue =
+        result && result.value && typeof result.value === "object"
+          ? result.value
+          : {};
+      const paramValues = Object.fromEntries(
+        parameters.map((p) => [
+          p.name,
+          existingValue[p.name] == null ? "" : String(existingValue[p.name]),
+        ]),
+      );
+      setForm({
+        ...blank,
+        status: result ? result.status : "COMPLETED",
+        interpretation: result?.interpretation || "",
+        notes: result?.notes || "",
+        paramValues,
+      });
+    } else {
+      setForm(
+        result
+          ? {
+              ...blank,
+              status: result.status,
+              value: result.value == null ? "" : JSON.stringify(result.value),
+              unit: result.unit || "",
+              referenceRange: result.referenceRange || "",
+              interpretation: result.interpretation || "",
+              notes: result.notes || "",
+            }
+          : blank,
+      );
+    }
   };
+  const setParamValue = (name, val) =>
+    setForm((f) => ({ ...f, paramValues: { ...f.paramValues, [name]: val } }));
   const submit = async (event, status) => {
     event.preventDefault();
     setError("");
+    const parameters = editing.item.testDefinition.parameters;
+    const hasParams = Array.isArray(parameters) && parameters.length > 0;
     let value;
-    try {
-      value = form.value.trim() ? JSON.parse(form.value) : undefined;
-    } catch {
-      setError(
-        'Result value must be valid JSON (for example: 4.5 or {"value": 4.5}).',
+    if (hasParams) {
+      value = Object.fromEntries(
+        parameters.map((p) => [
+          p.name,
+          (form.paramValues[p.name] ?? "").trim(),
+        ]),
       );
-      return;
+    } else {
+      try {
+        value = form.value.trim() ? JSON.parse(form.value) : undefined;
+      } catch {
+        setError(
+          'Result value must be valid JSON (for example: 4.5 or {"value": 4.5}).',
+        );
+        return;
+      }
     }
     const data = {
       status,
       ...(value !== undefined ? { value } : {}),
       ...Object.fromEntries(
-        ["unit", "referenceRange", "interpretation", "notes"]
+        (hasParams
+          ? ["interpretation", "notes"]
+          : ["unit", "referenceRange", "interpretation", "notes"]
+        )
           .filter((key) => form[key].trim())
           .map((key) => [key, form[key].trim()]),
       ),
@@ -103,6 +143,8 @@ export default function Results() {
     })),
   );
   const isFinalized = editing?.result?.status === "FINALIZED";
+  const parameters = editing?.item?.testDefinition?.parameters || [];
+  const hasParams = parameters.length > 0;
   return (
     <>
       <header className="page-header">
@@ -194,35 +236,69 @@ export default function Results() {
                 </>
               ) : null}
             </div>
-            <label>
-              Result value (JSON)
-              <input
-                disabled={isFinalized}
-                placeholder={'e.g. 4.5 or {"value": 4.5}'}
-                value={form.value}
-                onChange={(e) => setForm({ ...form, value: e.target.value })}
-              />
-            </label>
-            <label>
-              Unit
-              <input
-                disabled={isFinalized}
-                placeholder="e.g. mg/dL"
-                value={form.unit}
-                onChange={(e) => setForm({ ...form, unit: e.target.value })}
-              />
-            </label>
-            <label>
-              Reference range
-              <input
-                disabled={isFinalized}
-                placeholder="e.g. 70–110"
-                value={form.referenceRange}
-                onChange={(e) =>
-                  setForm({ ...form, referenceRange: e.target.value })
-                }
-              />
-            </label>
+            {hasParams ? (
+              <>
+                <div className="full">
+                  <strong>Test parameters</strong>
+                </div>
+                {parameters.map((parameter) => (
+                  <label key={parameter.id}>
+                    {parameter.name}
+                    <input
+                      disabled={isFinalized}
+                      value={form.paramValues[parameter.name] ?? ""}
+                      onChange={(e) =>
+                        setParamValue(parameter.name, e.target.value)
+                      }
+                    />
+                    <small className="result-context">
+                      {[
+                        parameter.unit,
+                        parameter.referenceRange
+                          ? `Reference: ${parameter.referenceRange}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </small>
+                  </label>
+                ))}
+              </>
+            ) : (
+              <>
+                <label>
+                  Result value (JSON)
+                  <input
+                    disabled={isFinalized}
+                    placeholder={'e.g. 4.5 or {"value": 4.5}'}
+                    value={form.value}
+                    onChange={(e) =>
+                      setForm({ ...form, value: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Unit
+                  <input
+                    disabled={isFinalized}
+                    placeholder="e.g. mg/dL"
+                    value={form.unit}
+                    onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Reference range
+                  <input
+                    disabled={isFinalized}
+                    placeholder="e.g. 70–110"
+                    value={form.referenceRange}
+                    onChange={(e) =>
+                      setForm({ ...form, referenceRange: e.target.value })
+                    }
+                  />
+                </label>
+              </>
+            )}
             <label>
               Interpretation
               <input

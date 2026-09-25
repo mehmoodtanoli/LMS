@@ -1,8 +1,10 @@
 import prisma from "../config/prisma.js";
+
 import ApiError from "../utils/ApiError.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -33,7 +35,7 @@ function assertLaboratoryScope(user) {
     if (!user.laboratoryId) {
       throw new ApiError(
         403,
-        "LAB_ADMIN users must be assigned to a laboratory before managing tests.",
+        "LAB_ADMIN users must be assigned to a laboratory before accessing tests.",
       );
     }
 
@@ -41,6 +43,15 @@ function assertLaboratoryScope(user) {
   }
 
   throw new ApiError(403, "You are not authorized to access test definitions.");
+}
+
+function assertSuperAdmin(user) {
+  if (user.role !== "SUPERADMIN") {
+    throw new ApiError(
+      403,
+      "Only SUPERADMIN users can manage test definitions.",
+    );
+  }
 }
 
 function parsePagination(query) {
@@ -103,27 +114,69 @@ function buildTestData(data) {
       });
     }
 
-    if (description !== undefined) {
-      testData.description = description;
-    }
+    testData.description = description ?? null;
   }
 
   return testData;
 }
 
-async function resolveLaboratoryIdForCreate({ user, laboratoryId }) {
-  const scopedLaboratoryId = assertLaboratoryScope(user);
-
-  if (user.role === "LAB_ADMIN") {
-    return scopedLaboratoryId;
+function buildParameterData(parameters) {
+  if (parameters === undefined) {
+    return undefined;
   }
+
+  if (!Array.isArray(parameters)) {
+    throw new ApiError(400, "parameters must be an array.", {
+      field: "parameters",
+    });
+  }
+
+  if (parameters.length === 0) {
+    throw new ApiError(400, "At least one parameter is required.", {
+      field: "parameters",
+    });
+  }
+
+  return parameters.map((parameter, index) => {
+    if (!parameter || typeof parameter !== "object") {
+      throw new ApiError(400, `Parameter ${index + 1} must be an object.`, {
+        field: `parameters[${index}]`,
+      });
+    }
+
+    const name = normalizeString(parameter.name);
+
+    if (!name) {
+      throw new ApiError(400, `Parameter ${index + 1} name is required.`, {
+        field: `parameters[${index}].name`,
+      });
+    }
+
+    const unit = normalizeOptionalString(parameter.unit);
+    const referenceRange = normalizeOptionalString(parameter.referenceRange);
+
+    return {
+      name,
+      unit: unit ?? null,
+      referenceRange: referenceRange ?? null,
+      order:
+        parameter.order === undefined
+          ? index + 1
+          : Number.isInteger(Number(parameter.order))
+            ? Number(parameter.order)
+            : index + 1,
+    };
+  });
+}
+
+async function resolveLaboratoryIdForCreate({ user, laboratoryId }) {
+  assertSuperAdmin(user);
 
   const normalizedLaboratoryId = normalizeString(laboratoryId);
 
+  // SUPERADMIN can omit laboratoryId to create a global template.
   if (!normalizedLaboratoryId) {
-    throw new ApiError(400, "laboratoryId is required.", {
-      field: "laboratoryId",
-    });
+    return null;
   }
 
   assertUuid(normalizedLaboratoryId, "laboratoryId");
@@ -151,6 +204,7 @@ function handlePrismaError(error) {
       },
     );
   }
+
   if (error?.code === "P2003") {
     throw new ApiError(
       409,
@@ -160,6 +214,7 @@ function handlePrismaError(error) {
       },
     );
   }
+
   if (error?.code === "P2025") {
     throw new ApiError(404, "Test definition not found.");
   }
@@ -170,20 +225,25 @@ function handlePrismaError(error) {
 function buildAccessibleWhere(user) {
   const laboratoryId = assertLaboratoryScope(user);
 
-  if (laboratoryId) {
-    return { laboratoryId };
+  if (user.role === "LAB_ADMIN") {
+    return {
+      OR: [{ laboratoryId }, { laboratoryId: null }],
+    };
   }
 
   return {};
 }
 
 async function createTestDefinition({ user, data }) {
+  assertSuperAdmin(user);
+
   const laboratoryId = await resolveLaboratoryIdForCreate({
     user,
     laboratoryId: data.laboratoryId,
   });
 
   const testData = buildTestData(data);
+  const parameters = buildParameterData(data.parameters);
 
   if (!testData.code) {
     throw new ApiError(400, "code is required.", { field: "code" });
@@ -198,6 +258,20 @@ async function createTestDefinition({ user, data }) {
       data: {
         ...testData,
         laboratoryId,
+        ...(parameters
+          ? {
+              parameters: {
+                create: parameters,
+              },
+            }
+          : {}),
+      },
+      include: {
+        parameters: {
+          orderBy: {
+            order: "asc",
+          },
+        },
       },
     });
   } catch (error) {
@@ -213,6 +287,13 @@ async function listTestDefinitions({ user, query }) {
   const [tests, total] = await prisma.$transaction([
     prisma.testDefinition.findMany({
       where,
+      include: {
+        parameters: {
+          orderBy: {
+            order: "asc",
+          },
+        },
+      },
       orderBy: {
         createdAt: "desc",
       },
@@ -235,12 +316,22 @@ async function listTestDefinitions({ user, query }) {
 
 async function getTestDefinitionById({ user, testId }) {
   assertUuid(testId, "id");
+
   const where = {
     id: testId,
     ...buildAccessibleWhere(user),
   };
 
-  const testDefinition = await prisma.testDefinition.findFirst({ where });
+  const testDefinition = await prisma.testDefinition.findFirst({
+    where,
+    include: {
+      parameters: {
+        orderBy: {
+          order: "asc",
+        },
+      },
+    },
+  });
 
   if (!testDefinition) {
     throw new ApiError(404, "Test definition not found.");
@@ -250,7 +341,10 @@ async function getTestDefinitionById({ user, testId }) {
 }
 
 async function updateTestDefinition({ user, testId, data }) {
+  assertSuperAdmin(user);
+
   assertUuid(testId, "id");
+
   const where = {
     id: testId,
     ...buildAccessibleWhere(user),
@@ -258,6 +352,9 @@ async function updateTestDefinition({ user, testId, data }) {
 
   const existingTestDefinition = await prisma.testDefinition.findFirst({
     where,
+    include: {
+      parameters: true,
+    },
   });
 
   if (!existingTestDefinition) {
@@ -265,15 +362,49 @@ async function updateTestDefinition({ user, testId, data }) {
   }
 
   const testData = buildTestData(data);
+  const parameters = buildParameterData(data.parameters);
 
-  if (Object.keys(testData).length === 0) {
-    throw new ApiError(400, "At least one test field must be provided.");
+  if (Object.keys(testData).length === 0 && parameters === undefined) {
+    throw new ApiError(
+      400,
+      "At least one test field or parameters must be provided.",
+    );
   }
 
   try {
-    return await prisma.testDefinition.update({
-      where: { id: testId },
-      data: testData,
+    return await prisma.$transaction(async (tx) => {
+      if (Object.keys(testData).length > 0) {
+        await tx.testDefinition.update({
+          where: { id: testId },
+          data: testData,
+        });
+      }
+
+      if (parameters !== undefined) {
+        await tx.testParameter.deleteMany({
+          where: {
+            testDefinitionId: testId,
+          },
+        });
+
+        await tx.testParameter.createMany({
+          data: parameters.map((parameter) => ({
+            ...parameter,
+            testDefinitionId: testId,
+          })),
+        });
+      }
+
+      return tx.testDefinition.findUnique({
+        where: { id: testId },
+        include: {
+          parameters: {
+            orderBy: {
+              order: "asc",
+            },
+          },
+        },
+      });
     });
   } catch (error) {
     handlePrismaError(error);
@@ -281,13 +412,18 @@ async function updateTestDefinition({ user, testId, data }) {
 }
 
 async function deleteTestDefinition({ user, testId }) {
+  assertSuperAdmin(user);
+
   assertUuid(testId, "id");
+
   const where = {
     id: testId,
     ...buildAccessibleWhere(user),
   };
 
-  const testDefinition = await prisma.testDefinition.findFirst({ where });
+  const testDefinition = await prisma.testDefinition.findFirst({
+    where,
+  });
 
   if (!testDefinition) {
     throw new ApiError(404, "Test definition not found.");

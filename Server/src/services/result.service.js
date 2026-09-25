@@ -1,9 +1,17 @@
 import prisma from "../config/prisma.js";
+
 import ApiError from "../utils/ApiError.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const VALID_RESULT_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED", "FINALIZED"];
+
+const VALID_RESULT_STATUSES = [
+  "PENDING",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "FINALIZED",
+];
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -19,15 +27,18 @@ const RESULT_SELECT = {
   notes: true,
   createdAt: true,
   updatedAt: true,
+
   orderedTestItem: {
     select: {
       id: true,
       notes: true,
+
       order: {
         select: {
           id: true,
           status: true,
           laboratoryId: true,
+
           patient: {
             select: {
               id: true,
@@ -39,12 +50,26 @@ const RESULT_SELECT = {
           },
         },
       },
+
       testDefinition: {
         select: {
           id: true,
           code: true,
           name: true,
           laboratoryId: true,
+
+          parameters: {
+            orderBy: {
+              order: "asc",
+            },
+            select: {
+              id: true,
+              name: true,
+              unit: true,
+              referenceRange: true,
+              order: true,
+            },
+          },
         },
       },
     },
@@ -106,6 +131,7 @@ function buildListWhere(user) {
 function parsePagination(query) {
   const pageValue = query?.page ?? DEFAULT_PAGE;
   const limitValue = query?.limit ?? DEFAULT_LIMIT;
+
   const page = Number(pageValue);
   const limit = Number(limitValue);
 
@@ -172,7 +198,11 @@ function buildResultData(data) {
   if (data.referenceRange !== undefined) {
     const referenceRange = normalizeOptionalString(data.referenceRange);
 
-    if (data.referenceRange !== null && data.referenceRange !== undefined && !referenceRange) {
+    if (
+      data.referenceRange !== null &&
+      data.referenceRange !== undefined &&
+      !referenceRange
+    ) {
       throw new ApiError(400, "referenceRange cannot be empty if provided.", {
         field: "referenceRange",
       });
@@ -186,7 +216,11 @@ function buildResultData(data) {
   if (data.interpretation !== undefined) {
     const interpretation = normalizeOptionalString(data.interpretation);
 
-    if (data.interpretation !== null && data.interpretation !== undefined && !interpretation) {
+    if (
+      data.interpretation !== null &&
+      data.interpretation !== undefined &&
+      !interpretation
+    ) {
       throw new ApiError(400, "interpretation cannot be empty if provided.", {
         field: "interpretation",
       });
@@ -216,9 +250,13 @@ function buildResultData(data) {
 
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
-    throw new ApiError(409, "A result already exists for this ordered test item.", {
-      fields: error.meta?.target ?? null,
-    });
+    throw new ApiError(
+      409,
+      "A result already exists for this ordered test item.",
+      {
+        fields: error.meta?.target ?? null,
+      },
+    );
   }
 
   if (error?.code === "P2025") {
@@ -244,18 +282,22 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
       : {
           id: orderedTestItemId,
         },
+
     select: {
       id: true,
+
       result: {
         select: {
           id: true,
         },
       },
+
       order: {
         select: {
           id: true,
           laboratoryId: true,
           status: true,
+
           patient: {
             select: {
               id: true,
@@ -267,12 +309,26 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
           },
         },
       },
+
       testDefinition: {
         select: {
           id: true,
           code: true,
           name: true,
           laboratoryId: true,
+
+          parameters: {
+            orderBy: {
+              order: "asc",
+            },
+            select: {
+              id: true,
+              name: true,
+              unit: true,
+              referenceRange: true,
+              order: true,
+            },
+          },
         },
       },
     },
@@ -294,10 +350,16 @@ async function createResult({ user, data }) {
     });
   }
 
-  const orderedTestItem = await findAccessibleOrderedTestItem({ user, orderedTestItemId });
+  const orderedTestItem = await findAccessibleOrderedTestItem({
+    user,
+    orderedTestItemId,
+  });
 
   if (orderedTestItem.result) {
-    throw new ApiError(409, "A result already exists for this ordered test item.");
+    throw new ApiError(
+      409,
+      "A result already exists for this ordered test item.",
+    );
   }
 
   const resultData = buildResultData(data);
@@ -330,11 +392,15 @@ async function listResults({ user, query }) {
       take: limit,
       select: RESULT_SELECT,
     }),
-    prisma.result.count({ where }),
+
+    prisma.result.count({
+      where,
+    }),
   ]);
 
   return {
     results,
+
     meta: {
       page,
       limit,
@@ -352,6 +418,7 @@ async function getResultById({ user, resultId }) {
       id: resultId,
       ...buildListWhere(user),
     },
+
     select: RESULT_SELECT,
   });
 
@@ -370,6 +437,7 @@ async function updateResult({ user, resultId, data }) {
       id: resultId,
       ...buildListWhere(user),
     },
+
     select: {
       id: true,
       status: true,
@@ -387,13 +455,20 @@ async function updateResult({ user, resultId, data }) {
   const resultData = buildResultData(data);
 
   if (Object.keys(resultData).length === 0) {
-    throw new ApiError(400, "At least one editable result field must be provided.");
+    throw new ApiError(
+      400,
+      "At least one editable result field must be provided.",
+    );
   }
 
   try {
     return await prisma.result.update({
-      where: { id: resultId },
+      where: {
+        id: resultId,
+      },
+
       data: resultData,
+
       select: RESULT_SELECT,
     });
   } catch (error) {
