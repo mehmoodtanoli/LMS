@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { apiError } from "../api/client";
 
 import { ErrorMessage } from "../components/Common";
+import { Activity } from "lucide-react";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -41,8 +42,12 @@ export default function Login() {
   return (
     <div className="login">
       <form className="login-card" onSubmit={submit}>
-        <div className="brand">
-          LMS <small>Laboratory workspace</small>
+        <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Activity className="brand-icon" size={32} color="var(--accent-primary)" />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>MEDI-LAB</span>
+            <small style={{ fontSize: '0.65em', color: 'var(--text-secondary)' }}>LIMS Workspace</small>
+          </div>
         </div>
 
         <h1>Sign in</h1>
