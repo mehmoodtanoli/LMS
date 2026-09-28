@@ -3,7 +3,11 @@ import ApiError from "../utils/ApiError.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CNIC_PATTERN = /^\d{13}$/;
+
 const VALID_GENDERS = ["MALE", "FEMALE", "OTHER"];
+const VALID_AGE_UNITS = ["YEARS", "MONTHS", "DAYS"];
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -22,12 +26,43 @@ function normalizeGender(value) {
   return normalizedValue || undefined;
 }
 
-function normalizeInteger(value, fieldName) {
+function normalizeAgeUnit(value) {
+  const normalizedValue = normalizeString(value).toUpperCase();
+
+  if (!normalizedValue || !VALID_AGE_UNITS.includes(normalizedValue)) {
+    throw new ApiError(400, "ageUnit must be one of YEARS, MONTHS, or DAYS.", {
+      field: "ageUnit",
+      validValues: VALID_AGE_UNITS,
+    });
+  }
+
+  return normalizedValue;
+}
+
+function normalizeAge(value, ageUnit) {
   const parsedValue = Number(value);
 
-  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
-    throw new ApiError(400, `${fieldName} must be a positive integer.`, {
-      field: fieldName,
+  if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+    throw new ApiError(400, "age must be a non-negative integer.", {
+      field: "age",
+    });
+  }
+
+  if (ageUnit === "YEARS" && parsedValue > 120) {
+    throw new ApiError(400, "Age in years cannot be greater than 120.", {
+      field: "age",
+    });
+  }
+
+  if (ageUnit === "MONTHS" && parsedValue > 1440) {
+    throw new ApiError(400, "Age in months cannot be greater than 1440.", {
+      field: "age",
+    });
+  }
+
+  if (ageUnit === "DAYS" && parsedValue > 43830) {
+    throw new ApiError(400, "Age in days cannot be greater than 43830.", {
+      field: "age",
     });
   }
 
@@ -129,7 +164,16 @@ function buildPatientData(data) {
   }
 
   if (data.age !== undefined) {
-    patientData.age = normalizeInteger(data.age, "age");
+    const ageUnit =
+      data.ageUnit !== undefined ? normalizeAgeUnit(data.ageUnit) : "YEARS";
+
+    patientData.age = normalizeAge(data.age, ageUnit);
+
+    if (data.ageUnit !== undefined) {
+      patientData.ageUnit = ageUnit;
+    }
+  } else if (data.ageUnit !== undefined) {
+    patientData.ageUnit = normalizeAgeUnit(data.ageUnit);
   }
 
   if (data.gender !== undefined) {
@@ -160,13 +204,19 @@ function buildPatientData(data) {
   }
 
   if (data.cnic !== undefined) {
-    const cnic = normalizeString(data.cnic);
+    if (data.cnic === null || normalizeString(data.cnic) === "") {
+      patientData.cnic = null;
+    } else {
+      const cnic = normalizeString(data.cnic);
 
-    if (!cnic) {
-      throw new ApiError(400, "cnic is required.", { field: "cnic" });
+      if (!CNIC_PATTERN.test(cnic)) {
+        throw new ApiError(400, "CNIC must contain exactly 13 digits.", {
+          field: "cnic",
+        });
+      }
+
+      patientData.cnic = cnic;
     }
-
-    patientData.cnic = cnic;
   }
 
   return patientData;
@@ -174,9 +224,13 @@ function buildPatientData(data) {
 
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
-    throw new ApiError(409, "A patient with the same unique details already exists.", {
-      fields: error.meta?.target ?? null,
-    });
+    throw new ApiError(
+      409,
+      "A patient with the same unique details already exists.",
+      {
+        fields: error.meta?.target ?? null,
+      },
+    );
   }
 
   if (error?.code === "P2003") {
@@ -238,12 +292,12 @@ async function createPatient({ user, data }) {
     throw new ApiError(400, "age is required.", { field: "age" });
   }
 
-  if (!patientData.gender) {
-    throw new ApiError(400, "gender is required.", { field: "gender" });
+  if (patientData.ageUnit === undefined) {
+    patientData.ageUnit = "YEARS";
   }
 
-  if (!patientData.cnic) {
-    throw new ApiError(400, "cnic is required.", { field: "cnic" });
+  if (!patientData.gender) {
+    throw new ApiError(400, "gender is required.", { field: "gender" });
   }
 
   try {
@@ -290,6 +344,7 @@ async function listPatients({ user, query }) {
 
 async function getPatientById({ user, patientId }) {
   assertUuid(patientId, "id");
+
   const where = {
     id: patientId,
     ...getAccessiblePatientWhere(user),
@@ -308,6 +363,7 @@ async function getPatientById({ user, patientId }) {
 
 async function updatePatient({ user, patientId, data }) {
   assertUuid(patientId, "id");
+
   const where = {
     id: patientId,
     ...getAccessiblePatientWhere(user),
@@ -337,6 +393,7 @@ async function updatePatient({ user, patientId, data }) {
 
 async function deletePatient({ user, patientId }) {
   assertUuid(patientId, "id");
+
   const where = {
     id: patientId,
     ...getAccessiblePatientWhere(user),
@@ -361,4 +418,10 @@ async function deletePatient({ user, patientId }) {
   return patient;
 }
 
-export { createPatient, listPatients, getPatientById, updatePatient, deletePatient };
+export {
+  createPatient,
+  listPatients,
+  getPatientById,
+  updatePatient,
+  deletePatient,
+};

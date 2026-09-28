@@ -24,16 +24,57 @@ import {
   patientName,
 } from "../components/Common";
 
+const AGE_UNITS = {
+  YEARS: "Years",
+  MONTHS: "Months",
+  DAYS: "Days",
+};
+
 const blank = {
   name: "",
   fullName: "",
   age: "",
+  ageUnit: "YEARS",
   gender: "MALE",
   cnic: "",
   phone: "",
   address: "",
   laboratoryId: "",
 };
+
+function ageLabel(age, ageUnit) {
+  if (age === null || age === undefined || age === "") {
+    return "—";
+  }
+
+  const unit = AGE_UNITS[ageUnit] || AGE_UNITS.YEARS;
+
+  return `${age} ${unit.toLowerCase()}`;
+}
+
+function cnicLabel(cnic) {
+  return cnic || "—";
+}
+
+function validateAge(age, ageUnit) {
+  if (!Number.isInteger(age) || age < 0) {
+    return "Age must be a non-negative whole number.";
+  }
+
+  if (ageUnit === "YEARS" && age > 120) {
+    return "Age in years cannot be greater than 120.";
+  }
+
+  if (ageUnit === "MONTHS" && age > 1440) {
+    return "Age in months cannot be greater than 1440.";
+  }
+
+  if (ageUnit === "DAYS" && age > 43830) {
+    return "Age in days cannot be greater than 43830.";
+  }
+
+  return "";
+}
 
 export default function Patients() {
   const [patients, setPatients] = useState([]),
@@ -60,8 +101,9 @@ export default function Patients() {
       !window.confirm(
         "Delete this patient? Related records may prevent deletion.",
       )
-    )
+    ) {
       return;
+    }
 
     try {
       await patientsApi.remove(id);
@@ -72,7 +114,7 @@ export default function Patients() {
   };
 
   const filtered = patients.filter((p) =>
-    `${p.name} ${p.fullName || ""} ${p.cnic} ${p.phone || ""}`
+    `${p.name} ${p.fullName || ""} ${p.cnic || ""} ${p.phone || ""}`
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
@@ -121,12 +163,12 @@ export default function Patients() {
                     <Link to={`/patients/${p.id}`}>{patientName(p)}</Link>
                   </td>
 
-                  <td>{p.cnic}</td>
+                  <td>{cnicLabel(p.cnic)}</td>
 
                   <td>{p.phone || "—"}</td>
 
                   <td>
-                    {p.age} / {p.gender}
+                    {ageLabel(p.age, p.ageUnit)} / {p.gender}
                   </td>
 
                   <td className="actions">
@@ -164,13 +206,17 @@ export function PatientForm() {
     if (id) {
       patientsApi
         .get(id)
-        .then((r) =>
+        .then((r) => {
+          const patient = r.data.patient;
+
           setForm({
             ...blank,
-            ...r.data.patient,
-            age: String(r.data.patient.age),
-          }),
-        )
+            ...patient,
+            age: String(patient.age),
+            ageUnit: patient.ageUnit || "YEARS",
+            cnic: patient.cnic || "",
+          });
+        })
         .catch((e) => setError(apiError(e)))
         .finally(() => setBusy(false));
     }
@@ -185,6 +231,7 @@ export function PatientForm() {
     const cnic = form.cnic.replace(/\D/g, "");
     const phone = form.phone.trim();
     const age = Number(form.age);
+    const ageUnit = form.ageUnit || "YEARS";
 
     if (!name) {
       setError("First name is required.");
@@ -196,8 +243,8 @@ export function PatientForm() {
       return;
     }
 
-    if (!/^\d{13}$/.test(cnic)) {
-      setError("CNIC must contain exactly 13 digits.");
+    if (cnic && !/^\d{13}$/.test(cnic)) {
+      setError("CNIC must contain exactly 13 digits when provided.");
       return;
     }
 
@@ -208,8 +255,15 @@ export function PatientForm() {
       return;
     }
 
-    if (!Number.isInteger(age) || age < 1 || age > 120) {
-      setError("Age must be a whole number between 1 and 120.");
+    const ageError = validateAge(age, ageUnit);
+
+    if (ageError) {
+      setError(ageError);
+      return;
+    }
+
+    if (!["YEARS", "MONTHS", "DAYS"].includes(ageUnit)) {
+      setError("Please select a valid age unit.");
       return;
     }
 
@@ -222,15 +276,21 @@ export function PatientForm() {
       ...form,
       name,
       fullName,
-      cnic,
+      cnic: cnic || null,
       phone,
       age,
+      ageUnit,
     };
 
-    if (!data.address?.trim()) delete data.address;
-    else data.address = data.address.trim();
+    if (!data.address?.trim()) {
+      delete data.address;
+    } else {
+      data.address = data.address.trim();
+    }
 
-    if (!data.laboratoryId) delete data.laboratoryId;
+    if (!data.laboratoryId) {
+      delete data.laboratoryId;
+    }
 
     setBusy(true);
 
@@ -293,8 +353,14 @@ export function PatientForm() {
           <input
             required
             type="number"
-            min="1"
-            max="120"
+            min="0"
+            max={
+              form.ageUnit === "YEARS"
+                ? "120"
+                : form.ageUnit === "MONTHS"
+                  ? "1440"
+                  : "43830"
+            }
             step="1"
             value={form.age}
             onChange={(e) =>
@@ -304,6 +370,24 @@ export function PatientForm() {
               })
             }
           />
+        </label>
+
+        <label>
+          Age unit
+          <select
+            required
+            value={form.ageUnit}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                ageUnit: e.target.value,
+              })
+            }
+          >
+            <option value="YEARS">Years</option>
+            <option value="MONTHS">Months</option>
+            <option value="DAYS">Days</option>
+          </select>
         </label>
 
         <label>
@@ -325,13 +409,12 @@ export function PatientForm() {
         </label>
 
         <label>
-          CNIC
+          CNIC <span>(optional)</span>
           <input
-            required
             inputMode="numeric"
             maxLength="13"
             pattern="[0-9]{13}"
-            placeholder="13 digits"
+            placeholder="13 digits (optional)"
             value={form.cnic}
             onChange={(e) =>
               setForm({
@@ -442,8 +525,10 @@ export function PatientDetail() {
       <header className="page-header">
         <div>
           <h1>{patientName(patient)}</h1>
+
           <p>
-            {patient.cnic} · {patient.age} · {patient.gender}
+            {cnicLabel(patient.cnic)} · {ageLabel(patient.age, patient.ageUnit)}{" "}
+            · {patient.gender}
           </p>
         </div>
 

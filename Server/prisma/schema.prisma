@@ -45,9 +45,10 @@ model Patient {
   fullName     String?
   phone        String?
   age          Int
+  ageUnit      AgeUnit     @default(YEARS)
   gender       Gender
   address      String?
-  cnic         String
+  cnic         String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   laboratory   Laboratory  @relation(fields: [laboratoryId], references: [id])
@@ -179,6 +180,12 @@ model Payment {
 
   @@index([laboratoryId, orderId])
   @@map("payments")
+}
+
+enum AgeUnit {
+  YEARS
+  MONTHS
+  DAYS
 }
 
 enum UserRole {
