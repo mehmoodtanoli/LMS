@@ -1,14 +1,26 @@
 import { Router } from "express";
+
 import authMiddleware from "../middlewares/auth.middleware.js";
+
 import asyncHandler from "../utils/asyncHandler.js";
-import { create, list, getById } from "../controllers/payment.controller.js";
+
+import {
+  create,
+  list,
+  getById,
+  getBilling,
+} from "../controllers/payment.controller.js";
 
 const router = Router();
 
 router.use(authMiddleware);
 
 router.post("/", asyncHandler(create));
+
 router.get("/", asyncHandler(list));
+
+router.get("/order/:orderId/billing", asyncHandler(getBilling));
+
 router.get("/:id", asyncHandler(getById));
 
 export default router;

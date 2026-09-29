@@ -1,5 +1,4 @@
 import prisma from "../config/prisma.js";
-
 import ApiError from "../utils/ApiError.js";
 
 const UUID_PATTERN =
@@ -38,6 +37,13 @@ const RESULT_SELECT = {
           id: true,
           status: true,
           laboratoryId: true,
+
+          laboratory: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
 
           patient: {
             select: {
@@ -93,9 +99,31 @@ function assertUuid(value, fieldName) {
   }
 }
 
-function assertLabAdminScope(user) {
+/**
+ * Returns the laboratory scope for the current user.
+ *
+ * SUPERADMIN:
+ *   Can access all laboratories.
+ *
+ * LAB_ADMIN:
+ *   Can access only their assigned laboratory.
+ *
+ * LAB_TECH:
+ *   Can access only their assigned laboratory.
+ *
+ * Any other role:
+ *   Cannot access results.
+ */
+function assertResultAccess(user) {
+  if (!user?.role) {
+    throw new ApiError(403, "You are not authorized to access results.");
+  }
+
   if (user.role === "SUPERADMIN") {
-    return null;
+    return {
+      laboratoryId: null,
+      canFinalize: true,
+    };
   }
 
   if (user.role === "LAB_ADMIN") {
@@ -106,14 +134,40 @@ function assertLabAdminScope(user) {
       );
     }
 
-    return user.laboratoryId;
+    return {
+      laboratoryId: user.laboratoryId,
+      canFinalize: true,
+    };
+  }
+
+  if (user.role === "LAB_TECH") {
+    if (!user.laboratoryId) {
+      throw new ApiError(
+        403,
+        "LAB_TECH users must be assigned to a laboratory before managing results.",
+      );
+    }
+
+    return {
+      laboratoryId: user.laboratoryId,
+      canFinalize: false,
+    };
   }
 
   throw new ApiError(403, "You are not authorized to access results.");
 }
 
+/**
+ * Build the Prisma scope used by list/get/update operations.
+ *
+ * SUPERADMIN:
+ *   {}
+ *
+ * LAB_ADMIN / LAB_TECH:
+ *   Results belonging to their laboratory only.
+ */
 function buildListWhere(user) {
-  const laboratoryId = assertLabAdminScope(user);
+  const { laboratoryId } = assertResultAccess(user);
 
   if (laboratoryId) {
     return {
@@ -170,6 +224,12 @@ function normalizeResultStatus(value) {
   return normalizedValue;
 }
 
+/**
+ * Build editable result fields.
+ *
+ * Permission-sensitive checks such as FINALIZED are handled
+ * separately because they depend on the current user's role.
+ */
 function buildResultData(data) {
   const resultData = {};
 
@@ -266,10 +326,16 @@ function handlePrismaError(error) {
   throw error;
 }
 
+/**
+ * Find an ordered test item accessible to the current user.
+ *
+ * This is used when creating a result because the result does not
+ * exist yet, so we authorize through the parent order.
+ */
 async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
   assertUuid(orderedTestItemId, "orderedTestItemId");
 
-  const laboratoryId = assertLabAdminScope(user);
+  const { laboratoryId } = assertResultAccess(user);
 
   const orderedTestItem = await prisma.orderedTestItem.findFirst({
     where: laboratoryId
@@ -289,6 +355,7 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
       result: {
         select: {
           id: true,
+          status: true,
         },
       },
 
@@ -341,6 +408,14 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
   return orderedTestItem;
 }
 
+/**
+ * Create a result for an ordered test item.
+ *
+ * LAB_TECH is allowed to create results.
+ * LAB_ADMIN and SUPERADMIN are also allowed.
+ *
+ * LAB_TECH cannot create a FINALIZED result directly.
+ */
 async function createResult({ user, data }) {
   const orderedTestItemId = normalizeString(data.orderedTestItemId);
 
@@ -349,6 +424,8 @@ async function createResult({ user, data }) {
       field: "orderedTestItemId",
     });
   }
+
+  assertResultAccess(user);
 
   const orderedTestItem = await findAccessibleOrderedTestItem({
     user,
@@ -364,6 +441,17 @@ async function createResult({ user, data }) {
 
   const resultData = buildResultData(data);
 
+  if (user.role === "LAB_TECH" && resultData.status === "FINALIZED") {
+    throw new ApiError(403, "LAB_TECH users cannot finalize results.");
+  }
+
+  /**
+   * A newly created result should normally start as PENDING
+   * if the client does not explicitly provide a status.
+   *
+   * We preserve the existing Prisma default rather than
+   * forcing a status here.
+   */
   try {
     return await prisma.result.create({
       data: {
@@ -377,8 +465,12 @@ async function createResult({ user, data }) {
   }
 }
 
+/**
+ * List results visible to the current user.
+ */
 async function listResults({ user, query }) {
   const where = buildListWhere(user);
+
   const { page, limit } = parsePagination(query);
   const skip = (page - 1) * limit;
 
@@ -400,7 +492,6 @@ async function listResults({ user, query }) {
 
   return {
     results,
-
     meta: {
       page,
       limit,
@@ -410,6 +501,9 @@ async function listResults({ user, query }) {
   };
 }
 
+/**
+ * Get a single result visible to the current user.
+ */
 async function getResultById({ user, resultId }) {
   assertUuid(resultId, "id");
 
@@ -418,7 +512,6 @@ async function getResultById({ user, resultId }) {
       id: resultId,
       ...buildListWhere(user),
     },
-
     select: RESULT_SELECT,
   });
 
@@ -429,8 +522,25 @@ async function getResultById({ user, resultId }) {
   return result;
 }
 
+/**
+ * Update an existing result.
+ *
+ * LAB_TECH:
+ *   Can update result data/status except FINALIZED.
+ *
+ * LAB_ADMIN:
+ *   Can update result data/status including FINALIZED.
+ *
+ * SUPERADMIN:
+ *   Can update result data/status including FINALIZED.
+ *
+ * Once a result is FINALIZED, nobody can modify it through
+ * this service.
+ */
 async function updateResult({ user, resultId, data }) {
   assertUuid(resultId, "id");
+
+  const access = assertResultAccess(user);
 
   const existingResult = await prisma.result.findFirst({
     where: {
@@ -441,6 +551,7 @@ async function updateResult({ user, resultId, data }) {
     select: {
       id: true,
       status: true,
+      orderedTestItemId: true,
     },
   });
 
@@ -461,14 +572,25 @@ async function updateResult({ user, resultId, data }) {
     );
   }
 
+  /**
+   * Technicians can complete results, but finalization belongs
+   * to LAB_ADMIN/SUPERADMIN.
+   */
+  if (user.role === "LAB_TECH" && resultData.status === "FINALIZED") {
+    throw new ApiError(403, "LAB_TECH users cannot finalize results.");
+  }
+
+  /**
+   * Re-check laboratory scope through the existing result before
+   * performing the update. This keeps the authorization boundary
+   * explicit instead of relying only on the initial lookup.
+   */
   try {
     return await prisma.result.update({
       where: {
-        id: resultId,
+        id: existingResult.id,
       },
-
       data: resultData,
-
       select: RESULT_SELECT,
     });
   } catch (error) {

@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+
 import ApiError from "../utils/ApiError.js";
 
 const UUID_PATTERN =
@@ -44,6 +45,7 @@ const TEST_ORDER_SELECT = {
   orderedTestItems: {
     select: {
       id: true,
+      price: true,
       notes: true,
 
       testDefinition: {
@@ -52,6 +54,7 @@ const TEST_ORDER_SELECT = {
           code: true,
           name: true,
           laboratoryId: true,
+          price: true,
 
           parameters: {
             orderBy: {
@@ -144,7 +147,41 @@ function parsePagination(query) {
   };
 }
 
-function assertLabAdminScope(user) {
+/**
+ * Access rules:
+ *
+ * SUPERADMIN:
+ * - Full access.
+ *
+ * LAB_ADMIN:
+ * - Full access to orders belonging to their laboratory.
+ *
+ * LAB_TECH:
+ * - Read access to orders belonging to their laboratory.
+ * - Order creation/deletion remains restricted.
+ * - Order status mutation remains restricted until the technician
+ *   workflow is finalized separately.
+ */
+function assertTestOrderReadScope(user) {
+  if (user.role === "SUPERADMIN") {
+    return null;
+  }
+
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
+    if (!user.laboratoryId) {
+      throw new ApiError(
+        403,
+        `${user.role} users must be assigned to a laboratory before accessing test orders.`,
+      );
+    }
+
+    return user.laboratoryId;
+  }
+
+  throw new ApiError(403, "You are not authorized to access test orders.");
+}
+
+function assertTestOrderManageScope(user) {
   if (user.role === "SUPERADMIN") {
     return null;
   }
@@ -160,11 +197,11 @@ function assertLabAdminScope(user) {
     return user.laboratoryId;
   }
 
-  throw new ApiError(403, "You are not authorized to access test orders.");
+  throw new ApiError(403, "You are not authorized to manage test orders.");
 }
 
 function getLabAdminLaboratoryId(user) {
-  const laboratoryId = assertLabAdminScope(user);
+  const laboratoryId = assertTestOrderManageScope(user);
 
   if (!laboratoryId) {
     throw new ApiError(
@@ -177,7 +214,7 @@ function getLabAdminLaboratoryId(user) {
 }
 
 function buildListWhere(user) {
-  const laboratoryId = assertLabAdminScope(user);
+  const laboratoryId = assertTestOrderReadScope(user);
 
   if (laboratoryId) {
     return { laboratoryId };
@@ -262,7 +299,19 @@ async function findAccessiblePatient({ user, patientId }) {
   assertUuid(patientId, "patientId");
 
   const laboratoryId =
-    user.role === "LAB_ADMIN" ? getLabAdminLaboratoryId(user) : null;
+    user.role === "LAB_ADMIN" || user.role === "LAB_TECH"
+      ? user.laboratoryId
+      : null;
+
+  if (
+    (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") &&
+    !laboratoryId
+  ) {
+    throw new ApiError(
+      403,
+      `${user.role} users must be assigned to a laboratory before accessing patients.`,
+    );
+  }
 
   const patient = await prisma.patient.findFirst({
     where: laboratoryId
@@ -294,7 +343,19 @@ async function findAccessibleTestDefinition({ user, testDefinitionId }) {
   assertUuid(testDefinitionId, "testDefinitionId");
 
   const laboratoryId =
-    user.role === "LAB_ADMIN" ? getLabAdminLaboratoryId(user) : null;
+    user.role === "LAB_ADMIN" || user.role === "LAB_TECH"
+      ? user.laboratoryId
+      : null;
+
+  if (
+    (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") &&
+    !laboratoryId
+  ) {
+    throw new ApiError(
+      403,
+      `${user.role} users must be assigned to a laboratory before accessing test definitions.`,
+    );
+  }
 
   const testDefinition = await prisma.testDefinition.findFirst({
     where: laboratoryId
@@ -318,12 +379,12 @@ async function findAccessibleTestDefinition({ user, testDefinitionId }) {
       laboratoryId: true,
       code: true,
       name: true,
+      price: true,
 
       parameters: {
         orderBy: {
           order: "asc",
         },
-
         select: {
           id: true,
           name: true,
@@ -360,6 +421,9 @@ function assertSameLaboratory(patient, testDefinition) {
 }
 
 async function createTestOrder({ user, data }) {
+  // LAB_TECH cannot create orders.
+  assertTestOrderManageScope(user);
+
   const patientId = normalizeString(data.patientId);
   const testDefinitionId = normalizeString(data.testDefinitionId);
 
@@ -429,6 +493,9 @@ async function createTestOrder({ user, data }) {
         orderedTestItems: {
           create: {
             testDefinitionId,
+
+            // Snapshot the catalog price at order creation time.
+            price: testDefinition.price,
           },
         },
       },
@@ -449,14 +516,11 @@ async function listTestOrders({ user, query }) {
   const [orders, total] = await prisma.$transaction([
     prisma.testOrder.findMany({
       where,
-
       orderBy: {
         createdAt: "desc",
       },
-
       skip,
       take: limit,
-
       select: TEST_ORDER_SELECT,
     }),
 
@@ -497,8 +561,10 @@ async function getTestOrderById({ user, orderId }) {
 }
 
 async function updateTestOrder({ user, orderId, data }) {
-  assertUuid(orderId, "id");
+  // LAB_TECH does not currently get order mutation rights.
+  assertTestOrderManageScope(user);
 
+  assertUuid(orderId, "id");
   assertNoImmutableOverrides(data);
 
   const order = await prisma.testOrder.findFirst({
@@ -541,6 +607,9 @@ async function updateTestOrder({ user, orderId, data }) {
 }
 
 async function deleteTestOrder({ user, orderId }) {
+  // LAB_TECH cannot delete orders.
+  assertTestOrderManageScope(user);
+
   assertUuid(orderId, "id");
 
   const order = await prisma.testOrder.findFirst({

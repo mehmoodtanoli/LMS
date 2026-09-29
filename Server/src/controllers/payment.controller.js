@@ -1,8 +1,17 @@
 import ApiResponse from "../utils/ApiResponse.js";
-import { createPayment, listPayments, getPaymentById } from "../services/payment.service.js";
+
+import {
+  createPayment,
+  listPayments,
+  getPaymentById,
+  getOrderBilling,
+} from "../services/payment.service.js";
 
 const create = async (req, res) => {
-  const payment = await createPayment({ user: req.user, data: req.body });
+  const payment = await createPayment({
+    user: req.user,
+    data: req.body,
+  });
 
   const response = new ApiResponse(201, "Payment created successfully.", {
     payment,
@@ -12,17 +21,28 @@ const create = async (req, res) => {
 };
 
 const list = async (req, res) => {
-  const result = await listPayments({ user: req.user, query: req.query });
+  const result = await listPayments({
+    user: req.user,
+    query: req.query,
+  });
 
-  const response = new ApiResponse(200, "Payments fetched successfully.", {
-    payments: result.payments,
-  }, result.meta);
+  const response = new ApiResponse(
+    200,
+    "Payments fetched successfully.",
+    {
+      payments: result.payments,
+    },
+    result.meta,
+  );
 
   return res.status(200).json(response);
 };
 
 const getById = async (req, res) => {
-  const payment = await getPaymentById({ user: req.user, paymentId: req.params.id });
+  const payment = await getPaymentById({
+    user: req.user,
+    paymentId: req.params.id,
+  });
 
   const response = new ApiResponse(200, "Payment fetched successfully.", {
     payment,
@@ -31,4 +51,17 @@ const getById = async (req, res) => {
   return res.status(200).json(response);
 };
 
-export { create, list, getById };
+const getBilling = async (req, res) => {
+  const billing = await getOrderBilling({
+    user: req.user,
+    orderId: req.params.orderId,
+  });
+
+  const response = new ApiResponse(200, "Order billing fetched successfully.", {
+    billing,
+  });
+
+  return res.status(200).json(response);
+};
+
+export { create, list, getById, getBilling };
