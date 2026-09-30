@@ -8,17 +8,11 @@ import ProtectedRoute, {
 import AppShell from "./layout/AppShell";
 
 import Login from "./pages/Login";
-
 import Dashboard from "./pages/Dashboard";
-
 import Patients, { PatientForm, PatientDetail } from "./pages/Patients";
-
 import Orders from "./pages/Orders";
-
 import Results from "./pages/Results";
-
 import Reports, { ReportDetail } from "./pages/Reports";
-
 import Payments from "./pages/Payments";
 
 import Laboratories, {
@@ -27,7 +21,6 @@ import Laboratories, {
 } from "./pages/Laboratories";
 
 import Tests, { TestForm, TestDetail } from "./pages/Tests";
-
 import Users, { UserForm, UserDetail } from "./pages/Users";
 
 export default function App() {
@@ -38,8 +31,8 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<RequireLabTechResults />}>
           <Route element={<AppShell />}>
-            {/* LAB_TECH entry point */}
-            <Route path="/" element={<Navigate to="/results" replace />} />
+            {/* Dashboard */}
+            <Route path="/" element={<Dashboard />} />
 
             {/* Main application routes */}
             <Route path="/patients" element={<Patients />} />
