@@ -1,10 +1,15 @@
 import prisma from "../config/prisma.js";
+
 import ApiError from "../utils/ApiError.js";
+
 import { hashPassword, comparePassword } from "../utils/password.js";
+
 import { signToken } from "../utils/token.js";
 
-const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN"];
+const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN", "LAB_TECH"];
+
 const PUBLIC_REGISTRATION_ROLE = "LAB_ADMIN";
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -14,14 +19,20 @@ function sanitizeUser(user) {
   }
 
   const { passwordHash, ...safeUser } = user;
+
   return safeUser;
 }
 
-async function registerUser({ actor, email, password, laboratoryId = null }) {
+async function registerUser({
+  actor,
+  email,
+  password,
+  laboratoryId = null,
+}) {
   if (!actor || actor.role !== "SUPERADMIN") {
     throw new ApiError(
       403,
-      "Only SUPERADMIN users can register new laboratory accounts.",
+      "Only SUPERADMIN users can register new laboratory accounts."
     );
   }
 
@@ -29,10 +40,13 @@ async function registerUser({ actor, email, password, laboratoryId = null }) {
     typeof email === "string" ? email.trim().toLowerCase() : "";
 
   if (!normalizedEmail) {
-    throw new ApiError(400, "Email is required.", { field: "email" });
+    throw new ApiError(400, "Email is required.", {
+      field: "email",
+    });
   }
 
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
   if (!emailPattern.test(normalizedEmail)) {
     throw new ApiError(400, "Please provide a valid email address.", {
       field: "email",
@@ -51,7 +65,7 @@ async function registerUser({ actor, email, password, laboratoryId = null }) {
       "Laboratory ID is required for LAB_ADMIN registration.",
       {
         field: "laboratoryId",
-      },
+      }
     );
   }
 
@@ -113,7 +127,10 @@ async function loginUser({ email, password }) {
     throw new ApiError(401, "Invalid email or password.");
   }
 
-  const isPasswordValid = await comparePassword(password, user.passwordHash);
+  const isPasswordValid = await comparePassword(
+    password,
+    user.passwordHash
+  );
 
   if (!isPasswordValid) {
     throw new ApiError(401, "Invalid email or password.");
@@ -147,4 +164,10 @@ async function getCurrentUser(userId) {
   return sanitizeUser(user);
 }
 
-export { VALID_ROLES, sanitizeUser, registerUser, loginUser, getCurrentUser };
+export {
+  VALID_ROLES,
+  sanitizeUser,
+  registerUser,
+  loginUser,
+  getCurrentUser,
+};

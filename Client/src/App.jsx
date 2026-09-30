@@ -1,6 +1,9 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 
-import ProtectedRoute, { RequireRole } from "./components/ProtectedRoute";
+import ProtectedRoute, {
+  RequireRole,
+  RequireLabTechResults,
+} from "./components/ProtectedRoute";
 
 import AppShell from "./layout/AppShell";
 
@@ -33,48 +36,52 @@ export default function App() {
       <Route path="/login" element={<Login />} />
 
       <Route element={<ProtectedRoute />}>
-        <Route element={<AppShell />}>
-          <Route path="/" element={<Dashboard />} />
+        <Route element={<RequireLabTechResults />}>
+          <Route element={<AppShell />}>
+            {/* LAB_TECH entry point */}
+            <Route path="/" element={<Navigate to="/results" replace />} />
 
-          <Route path="/patients" element={<Patients />} />
-          <Route path="/patients/new" element={<PatientForm />} />
-          <Route path="/patients/:id" element={<PatientDetail />} />
-          <Route path="/patients/:id/edit" element={<PatientForm />} />
+            {/* Main application routes */}
+            <Route path="/patients" element={<Patients />} />
+            <Route path="/patients/new" element={<PatientForm />} />
+            <Route path="/patients/:id" element={<PatientDetail />} />
+            <Route path="/patients/:id/edit" element={<PatientForm />} />
 
-          <Route path="/orders" element={<Orders />} />
+            <Route path="/orders" element={<Orders />} />
 
-          <Route path="/results" element={<Results />} />
+            <Route path="/results" element={<Results />} />
 
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/reports/:id" element={<ReportDetail />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/reports/:id" element={<ReportDetail />} />
 
-          <Route path="/payments" element={<Payments />} />
+            <Route path="/payments" element={<Payments />} />
 
-          {/* SUPERADMIN routes */}
-          <Route element={<RequireRole role="SUPERADMIN" />}>
-            <Route path="/admin/laboratories" element={<Laboratories />} />
-            <Route
-              path="/admin/laboratories/new"
-              element={<LaboratoryForm />}
-            />
-            <Route
-              path="/admin/laboratories/:id"
-              element={<LaboratoryDetail />}
-            />
-            <Route
-              path="/admin/laboratories/:id/edit"
-              element={<LaboratoryForm />}
-            />
+            {/* SUPERADMIN routes */}
+            <Route element={<RequireRole role="SUPERADMIN" />}>
+              <Route path="/admin/laboratories" element={<Laboratories />} />
+              <Route
+                path="/admin/laboratories/new"
+                element={<LaboratoryForm />}
+              />
+              <Route
+                path="/admin/laboratories/:id"
+                element={<LaboratoryDetail />}
+              />
+              <Route
+                path="/admin/laboratories/:id/edit"
+                element={<LaboratoryForm />}
+              />
 
-            <Route path="/admin/users" element={<Users />} />
-            <Route path="/admin/users/new" element={<UserForm />} />
-            <Route path="/admin/users/:id" element={<UserDetail />} />
-            <Route path="/admin/users/:id/edit" element={<UserForm />} />
+              <Route path="/admin/users" element={<Users />} />
+              <Route path="/admin/users/new" element={<UserForm />} />
+              <Route path="/admin/users/:id" element={<UserDetail />} />
+              <Route path="/admin/users/:id/edit" element={<UserForm />} />
 
-            <Route path="/admin/tests" element={<Tests />} />
-            <Route path="/admin/tests/new" element={<TestForm />} />
-            <Route path="/admin/tests/:id" element={<TestDetail />} />
-            <Route path="/admin/tests/:id/edit" element={<TestForm />} />
+              <Route path="/admin/tests" element={<Tests />} />
+              <Route path="/admin/tests/new" element={<TestForm />} />
+              <Route path="/admin/tests/:id" element={<TestDetail />} />
+              <Route path="/admin/tests/:id/edit" element={<TestForm />} />
+            </Route>
           </Route>
         </Route>
       </Route>

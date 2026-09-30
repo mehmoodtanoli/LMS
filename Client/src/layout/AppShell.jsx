@@ -20,10 +20,14 @@ export default function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
+  const isLabTech = user.role === "LAB_TECH";
+
   const context =
     user.role === "SUPERADMIN"
       ? "All laboratories"
       : user.laboratory?.name || "Your laboratory";
+
+  const visibleLinks = isLabTech ? [["/results", "Results"]] : links;
 
   return (
     <div className="app-shell">
@@ -33,17 +37,14 @@ export default function AppShell() {
         </div>
 
         <nav aria-label="Main navigation">
-          {links.map(([to, label]) => (
-            <NavLink
-              end={to === "/"}
-              to={to}
-              key={to}
-            >
+          {visibleLinks.map(([to, label]) => (
+            <NavLink end={to === "/" || to === "/results"} to={to} key={to}>
               {label}
             </NavLink>
           ))}
 
-          {user.role === "SUPERADMIN" &&
+          {!isLabTech &&
+            user.role === "SUPERADMIN" &&
             adminLinks.map(([to, label]) => (
               <NavLink to={to} key={to}>
                 {label}

@@ -1,13 +1,20 @@
 import prisma from "../config/prisma.js";
+
 import ApiError from "../utils/ApiError.js";
+
 import { hashPassword } from "../utils/password.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN"];
+
+const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN", "LAB_TECH"];
+
 const DEFAULT_PAGE = 1;
+
 const DEFAULT_LIMIT = 20;
+
 const MAX_LIMIT = 100;
 
 function normalizeString(value) {
@@ -61,26 +68,40 @@ const userSelect = {
   role: true,
   isActive: true,
   laboratoryId: true,
-  laboratory: { select: { id: true, name: true, isActive: true } },
+  laboratory: {
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+    },
+  },
   createdAt: true,
   updatedAt: true,
 };
 
 async function validateRoleAndLaboratory({ role, laboratoryId }) {
   if (!role || !VALID_ROLES.includes(role)) {
-    throw new ApiError(400, "role must be one of SUPERADMIN or LAB_ADMIN.", {
-      field: "role",
-      validValues: VALID_ROLES,
-    });
+    throw new ApiError(
+      400,
+      "role must be one of SUPERADMIN, LAB_ADMIN, or LAB_TECH.",
+      {
+        field: "role",
+        validValues: VALID_ROLES,
+      }
+    );
   }
 
-  if (role === "LAB_ADMIN") {
+  if (role === "LAB_ADMIN" || role === "LAB_TECH") {
     const normalizedLabId = normalizeString(laboratoryId);
 
     if (!normalizedLabId) {
-      throw new ApiError(400, "laboratoryId is required for LAB_ADMIN users.", {
-        field: "laboratoryId",
-      });
+      throw new ApiError(
+        400,
+        `laboratoryId is required for ${role} users.`,
+        {
+          field: "laboratoryId",
+        }
+      );
     }
 
     assertUuid(normalizedLabId, "laboratoryId");
@@ -125,7 +146,9 @@ async function createUser({ data }) {
     laboratoryId: data.laboratoryId,
   });
 
-  const existingUser = await prisma.user.findUnique({ where: { email } });
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+  });
 
   if (existingUser) {
     throw new ApiError(409, "A user with this email already exists.", {
@@ -148,28 +171,40 @@ async function createUser({ data }) {
 
 async function listUsers({ query }) {
   const { page, limit } = parsePagination(query);
+
   const where = {};
 
   const role = normalizeString(query?.role).toUpperCase();
+
   if (role) {
     if (!VALID_ROLES.includes(role)) {
-      throw new ApiError(400, "role must be one of SUPERADMIN or LAB_ADMIN.", {
-        field: "role",
-        validValues: VALID_ROLES,
-      });
+      throw new ApiError(
+        400,
+        "role must be one of SUPERADMIN, LAB_ADMIN, or LAB_TECH.",
+        {
+          field: "role",
+          validValues: VALID_ROLES,
+        }
+      );
     }
+
     where.role = role;
   }
 
   const laboratoryId = normalizeString(query?.laboratoryId);
+
   if (laboratoryId) {
     assertUuid(laboratoryId, "laboratoryId");
     where.laboratoryId = laboratoryId;
   }
 
   const search = normalizeString(query?.search);
+
   if (search) {
-    where.email = { contains: search, mode: "insensitive" };
+    where.email = {
+      contains: search,
+      mode: "insensitive",
+    };
   }
 
   const skip = (page - 1) * limit;
@@ -182,6 +217,7 @@ async function listUsers({ query }) {
       skip,
       take: limit,
     }),
+
     prisma.user.count({ where }),
   ]);
 
@@ -214,7 +250,9 @@ async function getUserById({ userId }) {
 async function updateUser({ userId, data }) {
   assertUuid(userId, "id");
 
-  const existingUser = await prisma.user.findUnique({ where: { id: userId } });
+  const existingUser = await prisma.user.findUnique({
+    where: { id: userId },
+  });
 
   if (!existingUser) {
     throw new ApiError(404, "User not found.");
@@ -246,6 +284,7 @@ async function updateUser({ userId, data }) {
 
   if (data.role !== undefined || data.laboratoryId !== undefined) {
     const role = data.role ?? existingUser.role;
+
     const laboratoryId = await validateRoleAndLaboratory({
       role,
       laboratoryId: data.laboratoryId ?? existingUser.laboratoryId,
@@ -290,4 +329,10 @@ async function setUserStatus({ userId, isActive }) {
   }
 }
 
-export { createUser, listUsers, getUserById, updateUser, setUserStatus };
+export {
+  createUser,
+  listUsers,
+  getUserById,
+  updateUser,
+  setUserStatus,
+};
