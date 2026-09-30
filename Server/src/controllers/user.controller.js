@@ -1,4 +1,5 @@
 import ApiResponse from "../utils/ApiResponse.js";
+
 import {
   createUser,
   listUsers,
@@ -8,7 +9,10 @@ import {
 } from "../services/user.service.js";
 
 const create = async (req, res) => {
-  const user = await createUser({ data: req.body });
+  const user = await createUser({
+    data: req.body,
+    actor: req.user,
+  });
 
   const response = new ApiResponse(201, "User created successfully.", {
     user,
@@ -18,7 +22,10 @@ const create = async (req, res) => {
 };
 
 const list = async (req, res) => {
-  const result = await listUsers({ query: req.query });
+  const result = await listUsers({
+    query: req.query,
+    actor: req.user,
+  });
 
   const response = new ApiResponse(
     200,
@@ -31,7 +38,10 @@ const list = async (req, res) => {
 };
 
 const getById = async (req, res) => {
-  const user = await getUserById({ userId: req.params.id });
+  const user = await getUserById({
+    userId: req.params.id,
+    actor: req.user,
+  });
 
   const response = new ApiResponse(200, "User fetched successfully.", {
     user,
@@ -41,7 +51,11 @@ const getById = async (req, res) => {
 };
 
 const update = async (req, res) => {
-  const user = await updateUser({ userId: req.params.id, data: req.body });
+  const user = await updateUser({
+    userId: req.params.id,
+    data: req.body,
+    actor: req.user,
+  });
 
   const response = new ApiResponse(200, "User updated successfully.", {
     user,
@@ -54,6 +68,7 @@ const setStatus = async (req, res) => {
   const user = await setUserStatus({
     userId: req.params.id,
     isActive: req.body.isActive,
+    actor: req.user,
   });
 
   const response = new ApiResponse(200, "User status updated.", { user });

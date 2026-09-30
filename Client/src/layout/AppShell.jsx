@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+
 import { useAuth } from "../auth/AuthContext";
 
 const links = [
@@ -21,6 +22,8 @@ export default function AppShell() {
   const navigate = useNavigate();
 
   const isLabTech = user.role === "LAB_TECH";
+  const isSuperAdmin = user.role === "SUPERADMIN";
+  const isLabAdmin = user.role === "LAB_ADMIN";
 
   const context =
     user.role === "SUPERADMIN"
@@ -43,13 +46,16 @@ export default function AppShell() {
             </NavLink>
           ))}
 
-          {!isLabTech &&
-            user.role === "SUPERADMIN" &&
+          {/* SUPERADMIN: Laboratories, Users, Tests */}
+          {isSuperAdmin &&
             adminLinks.map(([to, label]) => (
               <NavLink to={to} key={to}>
                 {label}
               </NavLink>
             ))}
+
+          {/* LAB_ADMIN: Users only */}
+          {isLabAdmin && <NavLink to="/admin/users">Users</NavLink>}
         </nav>
       </aside>
 

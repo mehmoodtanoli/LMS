@@ -6,9 +6,15 @@ import { adminUsersApi, laboratoriesApi } from "../api/resources";
 
 import { apiError } from "../api/client";
 
+import { useAuth } from "../auth/AuthContext";
+
 import { Empty, ErrorMessage, Loading, Status } from "../components/Common";
 
 export default function Users() {
+  const { user: currentUser } = useAuth();
+
+  const isLabAdmin = currentUser?.role === "LAB_ADMIN";
+
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
@@ -16,6 +22,7 @@ export default function Users() {
 
   const load = () => {
     setLoading(true);
+    setError("");
 
     adminUsersApi
       .list({ page: 1, limit: 100 })
@@ -28,7 +35,10 @@ export default function Users() {
 
   const toggle = async (user) => {
     try {
+      setError("");
+
       await adminUsersApi.setStatus(user.id, !user.isActive);
+
       load();
     } catch (e) {
       setError(apiError(e));
@@ -43,12 +53,17 @@ export default function Users() {
     <>
       <header className="page-header">
         <div>
-          <h1>Users</h1>
-          <p>Manage Super Admin, Lab Admin, and Lab Technician accounts.</p>
+          <h1>{isLabAdmin ? "Lab Technicians" : "Users"}</h1>
+
+          <p>
+            {isLabAdmin
+              ? "Manage the technicians belonging to your laboratory."
+              : "Manage Super Admin, Lab Admin, and Lab Technician accounts."}
+          </p>
         </div>
 
         <Link className="button" to="/admin/users/new">
-          New user
+          {isLabAdmin ? "New lab technician" : "New user"}
         </Link>
       </header>
 
@@ -104,7 +119,9 @@ export default function Users() {
           </table>
         </section>
       ) : (
-        <Empty>No matching users.</Empty>
+        <Empty>
+          {isLabAdmin ? "No lab technicians found." : "No matching users."}
+        </Empty>
       )}
     </>
   );
@@ -121,48 +138,67 @@ export function UserForm() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [form, setForm] = useState(blank);
+  const { user: currentUser } = useAuth();
+
+  const isLabAdmin = currentUser?.role === "LAB_ADMIN";
+
+  const [form, setForm] = useState({
+    ...blank,
+    role: isLabAdmin ? "LAB_TECH" : "LAB_ADMIN",
+  });
+
   const [laboratories, setLaboratories] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(Boolean(id));
 
   useEffect(() => {
-    laboratoriesApi
-      .list({ page: 1, limit: 100 })
-      .then((r) => setLaboratories(r.data.laboratories))
-      .catch((e) => setError(apiError(e)));
-  }, []);
+    if (!isLabAdmin) {
+      laboratoriesApi
+        .list({ page: 1, limit: 100 })
+        .then((r) => setLaboratories(r.data.laboratories))
+        .catch((e) => setError(apiError(e)));
+    }
+  }, [isLabAdmin]);
 
   useEffect(() => {
     if (id) {
       adminUsersApi
         .get(id)
-        .then((r) =>
+        .then((r) => {
+          const targetUser = r.data.user;
+
           setForm({
             ...blank,
-            email: r.data.user.email,
-            role: r.data.user.role,
-            laboratoryId: r.data.user.laboratoryId || "",
-          }),
-        )
+            email: targetUser.email,
+            role: isLabAdmin ? "LAB_TECH" : targetUser.role,
+            laboratoryId: targetUser.laboratoryId || "",
+          });
+        })
         .catch((e) => setError(apiError(e)))
         .finally(() => setBusy(false));
     }
-  }, [id]);
+  }, [id, isLabAdmin]);
 
   const submit = async (e) => {
     e.preventDefault();
+
     setError("");
     setBusy(true);
 
     const data = {
       email: form.email,
-      role: form.role,
-      laboratoryId:
+    };
+
+    if (isLabAdmin) {
+      data.role = "LAB_TECH";
+    } else {
+      data.role = form.role;
+
+      data.laboratoryId =
         form.role === "LAB_ADMIN" || form.role === "LAB_TECH"
           ? form.laboratoryId
-          : undefined,
-    };
+          : undefined;
+    }
 
     if (!id || form.password) {
       data.password = form.password;
@@ -189,7 +225,15 @@ export function UserForm() {
     <>
       <header className="page-header">
         <div>
-          <h1>{id ? "Edit user" : "New user"}</h1>
+          <h1>
+            {id
+              ? isLabAdmin
+                ? "Edit lab technician"
+                : "Edit user"
+              : isLabAdmin
+                ? "New lab technician"
+                : "New user"}
+          </h1>
         </div>
       </header>
 
@@ -202,62 +246,93 @@ export function UserForm() {
             required
             type="email"
             value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                email: e.target.value,
+              })
+            }
           />
         </label>
 
         <label>
           {id ? "New password (optional)" : "Password"}
+
           <input
             required={!id}
             type="password"
             minLength={6}
             value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-          />
-        </label>
-
-        <label>
-          Role
-          <select
-            value={form.role}
             onChange={(e) =>
               setForm({
                 ...form,
-                role: e.target.value,
-                laboratoryId:
-                  e.target.value === "SUPERADMIN" ? "" : form.laboratoryId,
+                password: e.target.value,
               })
             }
-          >
-            <option value="LAB_ADMIN">LAB_ADMIN</option>
-            <option value="LAB_TECH">LAB_TECH</option>
-            <option value="SUPERADMIN">SUPERADMIN</option>
-          </select>
+          />
         </label>
 
-        {(form.role === "LAB_ADMIN" || form.role === "LAB_TECH") && (
-          <label>
-            Laboratory
-            <select
-              required
-              value={form.laboratoryId}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  laboratoryId: e.target.value,
-                })
-              }
-            >
-              <option value="">Select a laboratory</option>
+        {isLabAdmin ? (
+          <>
+            <label>
+              Role
+              <input value="LAB_TECH" disabled readOnly />
+            </label>
 
-              {laboratories.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label>
+              Laboratory
+              <input
+                value={currentUser?.laboratory?.name || "Your laboratory"}
+                disabled
+                readOnly
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <label>
+              Role
+              <select
+                value={form.role}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    role: e.target.value,
+                    laboratoryId:
+                      e.target.value === "SUPERADMIN" ? "" : form.laboratoryId,
+                  })
+                }
+              >
+                <option value="LAB_ADMIN">LAB_ADMIN</option>
+                <option value="LAB_TECH">LAB_TECH</option>
+                <option value="SUPERADMIN">SUPERADMIN</option>
+              </select>
+            </label>
+
+            {(form.role === "LAB_ADMIN" || form.role === "LAB_TECH") && (
+              <label>
+                Laboratory
+                <select
+                  required
+                  value={form.laboratoryId}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      laboratoryId: e.target.value,
+                    })
+                  }
+                >
+                  <option value="">Select a laboratory</option>
+
+                  {laboratories.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </>
         )}
 
         <div className="full">
@@ -270,6 +345,10 @@ export function UserForm() {
 
 export function UserDetail() {
   const { id } = useParams();
+
+  const { user: currentUser } = useAuth();
+
+  const isLabAdmin = currentUser?.role === "LAB_ADMIN";
 
   const [user, setUser] = useState(null);
   const [error, setError] = useState("");
@@ -284,7 +363,10 @@ export function UserDetail() {
 
   const toggle = async () => {
     try {
+      setError("");
+
       await adminUsersApi.setStatus(id, !user.isActive);
+
       load();
     } catch (e) {
       setError(apiError(e));

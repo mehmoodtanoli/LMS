@@ -79,6 +79,43 @@ const userSelect = {
   updatedAt: true,
 };
 
+function assertActor(actor) {
+  if (!actor || !actor.role) {
+    throw new ApiError(401, "Authentication information is missing.");
+  }
+}
+
+function assertLabAdminOwnLab(actor) {
+  if (actor.role === "LAB_ADMIN" && !actor.laboratoryId) {
+    throw new ApiError(403, "LAB_ADMIN must be associated with a laboratory.");
+  }
+}
+
+function assertCanManageTarget({ actor, targetUser }) {
+  assertActor(actor);
+
+  if (actor.role === "SUPERADMIN") {
+    return;
+  }
+
+  if (actor.role !== "LAB_ADMIN") {
+    throw new ApiError(403, "You are not authorized to manage users.");
+  }
+
+  assertLabAdminOwnLab(actor);
+
+  if (targetUser.role !== "LAB_TECH") {
+    throw new ApiError(403, "LAB_ADMIN can only manage LAB_TECH users.");
+  }
+
+  if (targetUser.laboratoryId !== actor.laboratoryId) {
+    throw new ApiError(
+      403,
+      "You are not authorized to manage users from another laboratory.",
+    );
+  }
+}
+
 async function validateRoleAndLaboratory({ role, laboratoryId }) {
   if (!role || !VALID_ROLES.includes(role)) {
     throw new ApiError(
@@ -87,7 +124,7 @@ async function validateRoleAndLaboratory({ role, laboratoryId }) {
       {
         field: "role",
         validValues: VALID_ROLES,
-      }
+      },
     );
   }
 
@@ -95,13 +132,9 @@ async function validateRoleAndLaboratory({ role, laboratoryId }) {
     const normalizedLabId = normalizeString(laboratoryId);
 
     if (!normalizedLabId) {
-      throw new ApiError(
-        400,
-        `laboratoryId is required for ${role} users.`,
-        {
-          field: "laboratoryId",
-        }
-      );
+      throw new ApiError(400, `laboratoryId is required for ${role} users.`, {
+        field: "laboratoryId",
+      });
     }
 
     assertUuid(normalizedLabId, "laboratoryId");
@@ -122,7 +155,9 @@ async function validateRoleAndLaboratory({ role, laboratoryId }) {
   return null;
 }
 
-async function createUser({ data }) {
+async function createUser({ data, actor }) {
+  assertActor(actor);
+
   const email = normalizeString(data.email).toLowerCase();
 
   if (!email) {
@@ -141,9 +176,19 @@ async function createUser({ data }) {
     });
   }
 
-  const laboratoryId = await validateRoleAndLaboratory({
-    role: data.role,
-    laboratoryId: data.laboratoryId,
+  let role = data.role;
+  let laboratoryId = data.laboratoryId;
+
+  if (actor.role === "LAB_ADMIN") {
+    assertLabAdminOwnLab(actor);
+
+    role = "LAB_TECH";
+    laboratoryId = actor.laboratoryId;
+  }
+
+  laboratoryId = await validateRoleAndLaboratory({
+    role,
+    laboratoryId,
   });
 
   const existingUser = await prisma.user.findUnique({
@@ -162,40 +207,49 @@ async function createUser({ data }) {
     data: {
       email,
       passwordHash,
-      role: data.role,
+      role,
       laboratoryId,
     },
     select: userSelect,
   });
 }
 
-async function listUsers({ query }) {
+async function listUsers({ query, actor }) {
+  assertActor(actor);
+
   const { page, limit } = parsePagination(query);
 
   const where = {};
 
   const role = normalizeString(query?.role).toUpperCase();
 
-  if (role) {
-    if (!VALID_ROLES.includes(role)) {
-      throw new ApiError(
-        400,
-        "role must be one of SUPERADMIN, LAB_ADMIN, or LAB_TECH.",
-        {
-          field: "role",
-          validValues: VALID_ROLES,
-        }
-      );
+  if (actor.role === "LAB_ADMIN") {
+    assertLabAdminOwnLab(actor);
+
+    where.role = "LAB_TECH";
+    where.laboratoryId = actor.laboratoryId;
+  } else {
+    if (role) {
+      if (!VALID_ROLES.includes(role)) {
+        throw new ApiError(
+          400,
+          "role must be one of SUPERADMIN, LAB_ADMIN, or LAB_TECH.",
+          {
+            field: "role",
+            validValues: VALID_ROLES,
+          },
+        );
+      }
+
+      where.role = role;
     }
 
-    where.role = role;
-  }
+    const laboratoryId = normalizeString(query?.laboratoryId);
 
-  const laboratoryId = normalizeString(query?.laboratoryId);
-
-  if (laboratoryId) {
-    assertUuid(laboratoryId, "laboratoryId");
-    where.laboratoryId = laboratoryId;
+    if (laboratoryId) {
+      assertUuid(laboratoryId, "laboratoryId");
+      where.laboratoryId = laboratoryId;
+    }
   }
 
   const search = normalizeString(query?.search);
@@ -232,7 +286,7 @@ async function listUsers({ query }) {
   };
 }
 
-async function getUserById({ userId }) {
+async function getUserById({ userId, actor }) {
   assertUuid(userId, "id");
 
   const user = await prisma.user.findUnique({
@@ -244,10 +298,15 @@ async function getUserById({ userId }) {
     throw new ApiError(404, "User not found.");
   }
 
+  assertCanManageTarget({
+    actor,
+    targetUser: user,
+  });
+
   return user;
 }
 
-async function updateUser({ userId, data }) {
+async function updateUser({ userId, data, actor }) {
   assertUuid(userId, "id");
 
   const existingUser = await prisma.user.findUnique({
@@ -257,6 +316,11 @@ async function updateUser({ userId, data }) {
   if (!existingUser) {
     throw new ApiError(404, "User not found.");
   }
+
+  assertCanManageTarget({
+    actor,
+    targetUser: existingUser,
+  });
 
   const updateData = {};
 
@@ -282,16 +346,23 @@ async function updateUser({ userId, data }) {
     updateData.passwordHash = await hashPassword(data.password);
   }
 
-  if (data.role !== undefined || data.laboratoryId !== undefined) {
-    const role = data.role ?? existingUser.role;
+  if (actor.role === "SUPERADMIN") {
+    if (data.role !== undefined || data.laboratoryId !== undefined) {
+      const role = data.role ?? existingUser.role;
 
-    const laboratoryId = await validateRoleAndLaboratory({
-      role,
-      laboratoryId: data.laboratoryId ?? existingUser.laboratoryId,
-    });
+      const laboratoryId = await validateRoleAndLaboratory({
+        role,
+        laboratoryId: data.laboratoryId ?? existingUser.laboratoryId,
+      });
 
-    updateData.role = role;
-    updateData.laboratoryId = laboratoryId;
+      updateData.role = role;
+      updateData.laboratoryId = laboratoryId;
+    }
+  } else if (data.role !== undefined || data.laboratoryId !== undefined) {
+    throw new ApiError(
+      403,
+      "LAB_ADMIN cannot change a LAB_TECH user's role or laboratory.",
+    );
   }
 
   if (Object.keys(updateData).length === 0) {
@@ -309,7 +380,7 @@ async function updateUser({ userId, data }) {
   }
 }
 
-async function setUserStatus({ userId, isActive }) {
+async function setUserStatus({ userId, isActive, actor }) {
   assertUuid(userId, "id");
 
   if (typeof isActive !== "boolean") {
@@ -317,6 +388,19 @@ async function setUserStatus({ userId, isActive }) {
       field: "isActive",
     });
   }
+
+  const existingUser = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!existingUser) {
+    throw new ApiError(404, "User not found.");
+  }
+
+  assertCanManageTarget({
+    actor,
+    targetUser: existingUser,
+  });
 
   try {
     return await prisma.user.update({
@@ -329,10 +413,4 @@ async function setUserStatus({ userId, isActive }) {
   }
 }
 
-export {
-  createUser,
-  listUsers,
-  getUserById,
-  updateUser,
-  setUserStatus,
-};
+export { createUser, listUsers, getUserById, updateUser, setUserStatus };

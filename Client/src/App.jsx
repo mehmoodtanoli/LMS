@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 
 import ProtectedRoute, {
   RequireRole,
+  RequireAnyRole,
   RequireLabTechResults,
 } from "./components/ProtectedRoute";
 
@@ -9,10 +10,15 @@ import AppShell from "./layout/AppShell";
 
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+
 import Patients, { PatientForm, PatientDetail } from "./pages/Patients";
+
 import Orders from "./pages/Orders";
+
 import Results from "./pages/Results";
+
 import Reports, { ReportDetail } from "./pages/Reports";
+
 import Payments from "./pages/Payments";
 
 import Laboratories, {
@@ -21,6 +27,7 @@ import Laboratories, {
 } from "./pages/Laboratories";
 
 import Tests, { TestForm, TestDetail } from "./pages/Tests";
+
 import Users, { UserForm, UserDetail } from "./pages/Users";
 
 export default function App() {
@@ -65,15 +72,20 @@ export default function App() {
                 element={<LaboratoryForm />}
               />
 
-              <Route path="/admin/users" element={<Users />} />
-              <Route path="/admin/users/new" element={<UserForm />} />
-              <Route path="/admin/users/:id" element={<UserDetail />} />
-              <Route path="/admin/users/:id/edit" element={<UserForm />} />
-
               <Route path="/admin/tests" element={<Tests />} />
               <Route path="/admin/tests/new" element={<TestForm />} />
               <Route path="/admin/tests/:id" element={<TestDetail />} />
               <Route path="/admin/tests/:id/edit" element={<TestForm />} />
+            </Route>
+
+            {/* SUPERADMIN + LAB_ADMIN user management */}
+            <Route
+              element={<RequireAnyRole roles={["SUPERADMIN", "LAB_ADMIN"]} />}
+            >
+              <Route path="/admin/users" element={<Users />} />
+              <Route path="/admin/users/new" element={<UserForm />} />
+              <Route path="/admin/users/:id" element={<UserDetail />} />
+              <Route path="/admin/users/:id/edit" element={<UserForm />} />
             </Route>
           </Route>
         </Route>
