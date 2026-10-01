@@ -79,14 +79,18 @@ export default function Payments() {
 
   useEffect(() => {
     if (!printPayment) {
+      document.body.classList.remove("thermal-printing");
       return undefined;
     }
+
+    document.body.classList.add("thermal-printing");
 
     const printTimer = window.setTimeout(() => {
       window.print();
     }, 100);
 
     const handleAfterPrint = () => {
+      document.body.classList.remove("thermal-printing");
       setPrintPayment(null);
     };
 
