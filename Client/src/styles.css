@@ -4,14 +4,17 @@
   background: #f7f8fa;
   font-size: 15px;
 }
+
 * {
   box-sizing: border-box;
 }
+
 body {
   margin: 0;
   min-width: 320px;
   background: #f7f8fa;
 }
+
 button,
 input,
 select,
@@ -19,9 +22,11 @@ textarea {
   font: inherit;
   color: inherit;
 }
+
 a {
   color: #295d87;
 }
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -30,10 +35,12 @@ a:focus-visible {
   outline: 2px solid #397cad;
   outline-offset: 2px;
 }
+
 .app-shell {
   display: flex;
   min-height: 100vh;
 }
+
 .app-shell aside {
   width: 220px;
   flex: 0 0 220px;
@@ -43,6 +50,7 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
 }
+
 .brand {
   padding: 0 20px 20px;
   color: #295d87;
@@ -50,6 +58,7 @@ a:focus-visible {
   letter-spacing: 0.04em;
   font-size: 1.08rem;
 }
+
 .brand small {
   display: block;
   color: #8a909a;
@@ -58,11 +67,13 @@ a:focus-visible {
   font-weight: 500;
   margin-top: 4px;
 }
+
 .app-shell nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
+
 .app-shell nav a {
   padding: 9px 20px;
   border-left: 3px solid transparent;
@@ -71,18 +82,22 @@ a:focus-visible {
   font-size: 0.88rem;
   font-weight: 600;
 }
+
 .app-shell nav a:hover {
   background: #f7f8fa;
   color: #1a1d21;
 }
+
 .app-shell nav a.active {
   background: #e8f1f8;
   border-left-color: #397cad;
   color: #295d87;
 }
+
 .user {
   display: none;
 }
+
 .app-shell main {
   flex: 1;
   min-width: 0;
@@ -90,6 +105,7 @@ a:focus-visible {
   max-width: none;
   margin: 0;
 }
+
 .workspace-topbar {
   height: 56px;
   background: #fff;
@@ -101,15 +117,18 @@ a:focus-visible {
   color: #5b6169;
   font-size: 0.85rem;
 }
+
 .workspace-user {
   display: flex;
   align-items: center;
   gap: 16px;
 }
+
 .workspace-user strong {
   font-weight: 500;
   color: #5b6169;
 }
+
 .workspace-user .link {
   border: 1px solid #c2c8d0;
   background: #fff;
@@ -120,13 +139,16 @@ a:focus-visible {
   font-weight: 600;
   cursor: pointer;
 }
+
 .workspace-user .link:hover {
   background: #f2f5f7;
 }
+
 .workspace-content {
   max-width: 1180px;
   padding: 24px 32px;
 }
+
 .page-header {
   display: flex;
   align-items: flex-start;
@@ -134,6 +156,7 @@ a:focus-visible {
   gap: 16px;
   margin: 0 0 24px;
 }
+
 .page-header h1 {
   margin: 0;
   font-size: 1.625rem;
@@ -141,14 +164,17 @@ a:focus-visible {
   font-weight: 650;
   letter-spacing: -0.02em;
 }
+
 .page-header p {
   margin: 4px 0 0;
   color: #5b6169;
   font-size: 0.85rem;
 }
+
 .eyebrow {
   display: none;
 }
+
 .page-actions,
 .actions,
 .form-actions {
@@ -157,6 +183,7 @@ a:focus-visible {
   align-items: center;
   flex-wrap: wrap;
 }
+
 button,
 .button {
   display: inline-flex;
@@ -177,24 +204,29 @@ button,
     background 0.12s,
     border-color 0.12s;
 }
+
 .button:hover,
 button:hover {
   background: #214c70;
   border-color: #214c70;
 }
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
+
 .secondary {
   border-color: #c2c8d0;
   background: #fff;
   color: #1a1d21;
 }
+
 .secondary:hover {
   background: #eef2f5;
   border-color: #b5bdc7;
 }
+
 .link {
   min-height: 0;
   padding: 0;
@@ -203,14 +235,47 @@ button:disabled {
   color: #295d87;
   font-weight: 600;
 }
+
 .link:hover {
   background: transparent;
   color: #214c70;
   text-decoration: underline;
 }
+
+/* Delete button: red text without background or border */
+.delete-button {
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #dc2626;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.delete-button:hover {
+  background: transparent;
+  border-color: transparent;
+  color: #991b1b;
+  text-decoration: underline;
+}
+
+.delete-button:disabled,
+.delete-button:disabled:hover {
+  background: transparent;
+  border-color: transparent;
+  color: #dc2626;
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
 .danger {
   color: #a3342b;
 }
+
 .panel {
   margin: 0 0 24px;
   padding: 20px;
@@ -219,11 +284,13 @@ button:disabled {
   border-radius: 6px;
   box-shadow: 0 1px 2px #14181c0d;
 }
+
 .panel h2 {
   margin: 0;
   font-size: 1.06rem;
   font-weight: 650;
 }
+
 .panel-heading {
   margin: -20px -20px 16px;
   padding: 14px 20px;
@@ -233,12 +300,14 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
 }
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
   margin: 0 0 24px;
 }
+
 .metrics div {
   background: #fff;
   border: 1px solid #dde1e6;
@@ -246,28 +315,34 @@ button:disabled {
   padding: 16px 20px;
   color: #1a1d21;
 }
+
 .metrics div:hover {
   border-color: #b7c8d7;
 }
+
 .metrics strong {
   display: block;
   font-size: 1.45rem;
   font-weight: 650;
   line-height: 1.2;
 }
+
 .metrics span {
   display: block;
   margin-top: 4px;
   color: #5b6169;
   font-size: 0.8rem;
 }
+
 table {
   width: 100%;
   border-collapse: collapse;
 }
+
 .panel > table {
   margin: -4px 0;
 }
+
 th,
 td {
   padding: 12px 16px;
@@ -276,6 +351,7 @@ td {
   border-bottom: 1px solid #dde1e6;
   font-size: 0.84rem;
 }
+
 th {
   background: #f7f8fa;
   color: #5b6169;
@@ -284,19 +360,24 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
 tbody tr:hover {
   background: #f7f8fa;
 }
+
 tbody tr:last-child td {
   border-bottom: 0;
 }
+
 td a {
   font-weight: 600;
   text-decoration: none;
 }
+
 td a:hover {
   text-decoration: underline;
 }
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -308,6 +389,7 @@ td a:hover {
   font-size: 0.72rem;
   font-weight: 600;
 }
+
 .badge.completed,
 .badge.final,
 .badge.finalized,
@@ -316,6 +398,7 @@ td a:hover {
   background: #e6f0ea;
   color: #2f6f4e;
 }
+
 .badge.pending,
 .badge.in-progress,
 .badge.partially-paid,
@@ -324,6 +407,7 @@ td a:hover {
   background: #f6ecd9;
   color: #96631a;
 }
+
 .badge.cancelled,
 .badge.refunded,
 .badge.unpaid,
@@ -331,17 +415,21 @@ td a:hover {
   background: #f7e7e5;
   color: #a3342b;
 }
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
 }
+
 .full {
   grid-column: 1/-1;
 }
+
 .form-grid > h2 {
   margin-bottom: 16px;
 }
+
 .form-grid label {
   display: grid;
   gap: 5px;
@@ -350,6 +438,7 @@ td a:hover {
   font-size: 0.82rem;
   font-weight: 600;
 }
+
 input,
 select,
 textarea {
@@ -360,10 +449,12 @@ textarea {
   background: #fff;
   padding: 8px 10px;
 }
+
 textarea {
   min-height: 76px;
   resize: vertical;
 }
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -371,9 +462,11 @@ textarea:focus {
   box-shadow: 0 0 0 3px #dcebf5;
   outline: 0;
 }
+
 input::placeholder {
   color: #8a909a;
 }
+
 .state {
   padding: 40px 16px;
   text-align: center;
@@ -382,20 +475,24 @@ input::placeholder {
   border: 1px solid #dde1e6;
   border-radius: 6px;
 }
+
 .alert {
   margin: 0 0 16px;
   padding: 10px 12px;
   border-radius: 4px;
   font-size: 0.84rem;
 }
+
 .alert.error {
   color: #a3342b;
   background: #f7e7e5;
   border: 1px solid #eac4c0;
 }
+
 .search {
   max-width: 300px;
 }
+
 .search-row {
   display: flex;
   align-items: center;
@@ -403,10 +500,12 @@ input::placeholder {
   gap: 16px;
   margin-bottom: 12px;
 }
+
 .search-meta {
   font-size: 0.8rem;
   color: #5b6169;
 }
+
 .check-grid {
   max-height: 220px;
   overflow: auto;
@@ -416,6 +515,7 @@ input::placeholder {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0;
 }
+
 .check {
   display: flex;
   align-items: center;
@@ -425,29 +525,35 @@ input::placeholder {
   font-weight: 500 !important;
   border-bottom: 1px solid #dde1e6;
 }
+
 .check:hover {
   background: #f7f8fa;
 }
+
 .check input {
   width: auto;
   min-height: 0;
 }
+
 fieldset {
   border: 0;
   padding: 0;
   margin: 0 0 16px;
 }
+
 legend {
   margin-bottom: 5px;
   color: #5b6169;
   font-size: 0.82rem;
   font-weight: 600;
 }
+
 details summary {
   cursor: pointer;
   color: #295d87;
   font-weight: 600;
 }
+
 .login {
   min-height: 100vh;
   display: grid;
@@ -455,6 +561,7 @@ details summary {
   padding: 16px;
   background: #f7f8fa;
 }
+
 .login-card {
   width: min(100%, 340px);
   display: grid;
@@ -465,19 +572,23 @@ details summary {
   border-radius: 6px;
   box-shadow: 0 1px 2px #14181c0d;
 }
+
 .login-card h1 {
   margin: 0;
   color: #295d87;
   font-size: 1.25rem;
 }
+
 .login-card p {
   margin: 0;
   color: #5b6169;
   font-size: 0.85rem;
 }
+
 .login-card .brand {
   padding: 0;
 }
+
 .details {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -488,10 +599,12 @@ details summary {
   border: 1px solid #dde1e6;
   border-radius: 6px;
 }
+
 .details div {
   padding: 16px 20px;
   background: #fff;
 }
+
 .details b,
 .report-patient b {
   display: block;
@@ -501,6 +614,7 @@ details summary {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+
 .modal {
   position: fixed;
   inset: 0;
@@ -510,11 +624,13 @@ details summary {
   padding: 16px;
   background: #17212b66;
 }
+
 .modal-card {
   width: min(100%, 760px);
   max-height: 90vh;
   overflow: auto;
 }
+
 .result-context {
   padding: 12px;
   background: #f1f6fa;
@@ -522,15 +638,18 @@ details summary {
   color: #34536b;
   font-size: 0.85rem;
 }
+
 .report {
   max-width: 1050px;
 }
+
 .print-sheet {
   padding: 40px;
   background: #fff;
   border: 1px solid #dde1e6;
   border-radius: 6px;
 }
+
 .report-head,
 .report-patient {
   display: flex;
@@ -540,20 +659,25 @@ details summary {
   margin-bottom: 24px;
   border-bottom: 1px solid #dde1e6;
 }
+
 .report-head h1 {
   margin: 0;
   font-size: 1.5rem;
 }
+
 .report-head p {
   color: #5b6169;
   margin: 4px 0;
 }
+
 .report-patient {
   justify-content: flex-start;
 }
+
 .report-patient div {
   min-width: 145px;
 }
+
 .report-footer {
   display: flex;
   justify-content: space-between;
@@ -576,40 +700,48 @@ details summary {
   padding-bottom: 10px;
   margin-bottom: 10px;
 }
+
 .thermal-receipt-header h1 {
   margin: 0;
   font-size: 17px;
   font-weight: 700;
 }
+
 .thermal-receipt-header p {
   margin: 4px 0 0;
   font-size: 12px;
 }
+
 .thermal-receipt-meta {
   display: grid;
   gap: 5px;
   padding-bottom: 10px;
   border-bottom: 1px dashed #000;
 }
+
 .thermal-receipt-meta div {
   display: flex;
   justify-content: space-between;
   gap: 8px;
   font-size: 11px;
 }
+
 .thermal-receipt-meta span,
 .thermal-receipt-totals span,
 .thermal-receipt-payment span {
   font-weight: 400;
 }
+
 .thermal-receipt-meta strong {
   font-weight: 600;
   text-align: right;
 }
+
 .thermal-receipt-section {
   padding: 10px 0;
   border-bottom: 1px dashed #000;
 }
+
 .thermal-receipt-title,
 .thermal-receipt-row {
   display: grid;
@@ -617,22 +749,27 @@ details summary {
   gap: 8px;
   font-size: 11px;
 }
+
 .thermal-receipt-title {
   font-weight: 700;
   padding-bottom: 5px;
   border-bottom: 1px solid #000;
 }
+
 .thermal-receipt-row {
   padding: 5px 0;
 }
+
 .thermal-receipt-row strong {
   text-align: right;
   white-space: nowrap;
 }
+
 .thermal-receipt-totals {
   padding: 10px 0;
   border-bottom: 1px dashed #000;
 }
+
 .thermal-receipt-totals div,
 .thermal-receipt-payment div {
   display: flex;
@@ -641,22 +778,27 @@ details summary {
   font-size: 11px;
   padding: 3px 0;
 }
+
 .thermal-receipt-totals strong,
 .thermal-receipt-payment strong {
   text-align: right;
 }
+
 .thermal-receipt-status {
   font-weight: 700;
 }
+
 .thermal-receipt-payment {
   padding: 10px 0;
   border-bottom: 1px dashed #000;
 }
+
 .thermal-receipt-footer {
   text-align: center;
   padding-top: 12px;
   font-size: 11px;
 }
+
 .thermal-receipt-footer p {
   margin: 0;
 }
@@ -666,78 +808,98 @@ details summary {
     width: 76px;
     flex-basis: 76px;
   }
+
   .brand {
     padding: 0 10px 16px;
     text-align: center;
   }
+
   .brand small {
     display: none;
   }
+
   .app-shell nav a {
     padding: 10px;
     text-align: center;
     font-size: 0.72rem;
   }
+
   .workspace-topbar {
     padding: 0 16px;
   }
+
   .workspace-content {
     padding: 20px;
   }
+
   .metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
 @media (max-width: 620px) {
   .app-shell {
     display: block;
   }
+
   .app-shell aside {
     width: 100%;
     padding: 12px 0;
   }
+
   .brand {
     text-align: left;
     padding: 0 16px 10px;
   }
+
   .app-shell nav {
     flex-direction: row;
     overflow: auto;
   }
+
   .app-shell nav a {
     white-space: nowrap;
     padding: 8px 12px;
   }
+
   .workspace-topbar {
     height: auto;
     min-height: 52px;
   }
+
   .workspace-topbar-role {
     display: none;
   }
+
   .workspace-user strong {
     display: none;
   }
+
   .workspace-content {
     padding: 16px;
   }
+
   .page-header,
   .search-row {
     flex-direction: column;
   }
+
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
   .form-grid,
   .details,
   .check-grid {
     grid-template-columns: 1fr;
   }
+
   .report-head,
   .report-patient,
   .report-footer {
     flex-direction: column;
   }
+
   table {
     display: block;
     overflow: auto;

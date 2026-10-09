@@ -2,12 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { testsApi } from "../api/resources";
 import { apiError } from "../api/client";
-import {
-  Empty,
-  ErrorMessage,
-  Loading,
-  date,
-} from "../components/Common";
+import { Empty, ErrorMessage, Loading, date } from "../components/Common";
 
 const blankParameter = {
   name: "",
@@ -28,6 +23,7 @@ export default function Tests() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -39,7 +35,29 @@ export default function Tests() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleDelete = async (test) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${test.name}" (${test.code})?\n\nThis action cannot be undone.`,
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setDeletingId(test.id);
+
+    try {
+      await testsApi.remove(test.id);
+      setTests((current) => current.filter((item) => item.id !== test.id));
+    } catch (e) {
+      setError(apiError(e));
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const filtered = tests.filter((test) => {
     const query = search.toLowerCase();
@@ -85,7 +103,7 @@ export default function Tests() {
                 <th>Scope</th>
                 <th>Parameters</th>
                 <th>Created</th>
-                <th />
+                <th>Actions</th>
               </tr>
             </thead>
 
@@ -95,29 +113,28 @@ export default function Tests() {
                   <td>{test.code}</td>
 
                   <td>
-                    <Link to={`/admin/tests/${test.id}`}>
-                      {test.name}
-                    </Link>
+                    <Link to={`/admin/tests/${test.id}`}>{test.name}</Link>
                   </td>
 
-                  <td>
-                    {test.laboratoryId
-                      ? "Laboratory"
-                      : "Global"}
-                  </td>
+                  <td>{test.laboratoryId ? "Laboratory" : "Global"}</td>
 
                   <td>{test.parameters?.length ?? 0}</td>
 
                   <td>{date(test.createdAt)}</td>
 
                   <td className="actions">
-                    <Link to={`/admin/tests/${test.id}`}>
-                      View
-                    </Link>
+                    <Link to={`/admin/tests/${test.id}`}>View</Link>
 
-                    <Link to={`/admin/tests/${test.id}/edit`}>
-                      Edit
-                    </Link>
+                    <Link to={`/admin/tests/${test.id}/edit`}>Edit</Link>
+
+                    <button
+                      type="button"
+                      className="link delete-button"
+                      disabled={deletingId === test.id}
+                      onClick={() => handleDelete(test)}
+                    >
+                      {deletingId === test.id ? "Deleting..." : "Delete"}
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -145,7 +162,7 @@ export function TestForm() {
     testsApi
       .get(id)
       .then((r) => {
-        const test = r.data.test;
+        const test = r.data.testDefinition;
 
         setForm({
           code: test.code || "",
@@ -180,10 +197,7 @@ export function TestForm() {
   const addParameter = () => {
     setForm((current) => ({
       ...current,
-      parameters: [
-        ...current.parameters,
-        { ...blankParameter },
-      ],
+      parameters: [...current.parameters, { ...blankParameter }],
     }));
   };
 
@@ -217,9 +231,7 @@ export function TestForm() {
       ...(form.laboratoryId.trim()
         ? { laboratoryId: form.laboratoryId.trim() }
         : {}),
-      ...(parameters.length
-        ? { parameters }
-        : {}),
+      ...(parameters.length ? { parameters } : {}),
     };
 
     try {
@@ -227,7 +239,8 @@ export function TestForm() {
         ? await testsApi.update(id, data)
         : await testsApi.create(data);
 
-      navigate(`/admin/tests/${response.data.test.id}`);
+      const savedTest = response.data.testDefinition;
+      navigate(`/admin/tests/${savedTest.id}`);
     } catch (err) {
       setError(apiError(err));
     } finally {
@@ -244,18 +257,11 @@ export function TestForm() {
       <header className="page-header">
         <div>
           <h1>{id ? "Edit test" : "New test"}</h1>
-
-          <p>
-            Create a reusable test definition and its
-            parameters.
-          </p>
+          <p>Create a reusable test definition and its parameters.</p>
         </div>
       </header>
 
-      <form
-        className="panel form-grid"
-        onSubmit={submit}
-      >
+      <form className="panel form-grid" onSubmit={submit}>
         <ErrorMessage error={error} />
 
         <label>
@@ -314,22 +320,15 @@ export function TestForm() {
             }
             placeholder="Leave empty for a global template"
           />
-
           <small className="result-context">
-            Leave empty to make this test available to all
-            laboratories.
+            Leave empty to make this test available to all laboratories.
           </small>
         </label>
 
         <div className="full">
           <div className="panel-heading">
             <h2>Parameters</h2>
-
-            <button
-              type="button"
-              className="secondary"
-              onClick={addParameter}
-            >
+            <button type="button" className="secondary" onClick={addParameter}>
               Add parameter
             </button>
           </div>
@@ -337,21 +336,13 @@ export function TestForm() {
           {form.parameters.length ? (
             <div className="form-grid">
               {form.parameters.map((parameter, index) => (
-                <div
-                  className="panel full"
-                  key={index}
-                >
+                <div className="panel full" key={index}>
                   <div className="panel-heading">
-                    <strong>
-                      Parameter {index + 1}
-                    </strong>
-
+                    <strong>Parameter {index + 1}</strong>
                     <button
                       type="button"
                       className="link"
-                      onClick={() =>
-                        removeParameter(index)
-                      }
+                      onClick={() => removeParameter(index)}
                     >
                       Remove
                     </button>
@@ -364,11 +355,7 @@ export function TestForm() {
                         required
                         value={parameter.name}
                         onChange={(e) =>
-                          updateParameter(
-                            index,
-                            "name",
-                            e.target.value,
-                          )
+                          updateParameter(index, "name", e.target.value)
                         }
                         placeholder="e.g. Hemoglobin"
                       />
@@ -379,11 +366,7 @@ export function TestForm() {
                       <input
                         value={parameter.unit}
                         onChange={(e) =>
-                          updateParameter(
-                            index,
-                            "unit",
-                            e.target.value,
-                          )
+                          updateParameter(index, "unit", e.target.value)
                         }
                         placeholder="e.g. g/dL"
                       />
@@ -392,9 +375,7 @@ export function TestForm() {
                     <label className="full">
                       Reference range
                       <input
-                        value={
-                          parameter.referenceRange
-                        }
+                        value={parameter.referenceRange}
                         onChange={(e) =>
                           updateParameter(
                             index,
@@ -411,16 +392,14 @@ export function TestForm() {
             </div>
           ) : (
             <Empty>
-              No parameters added. This can be used for
-              tests that store a single result value.
+              No parameters added. This can be used for tests that store a
+              single result value.
             </Empty>
           )}
         </div>
 
         <div className="full">
-          <button disabled={busy}>
-            {busy ? "Saving…" : "Save test"}
-          </button>
+          <button disabled={busy}>{busy ? "Saving..." : "Save test"}</button>
         </div>
       </form>
     </>
@@ -429,14 +408,13 @@ export function TestForm() {
 
 export function TestDetail() {
   const { id } = useParams();
-
   const [test, setTest] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     testsApi
       .get(id)
-      .then((r) => setTest(r.data.test))
+      .then((r) => setTest(r.data.testDefinition))
       .catch((e) => setError(apiError(e)));
   }, [id]);
 
@@ -455,9 +433,7 @@ export function TestDetail() {
           <h1>{test.name}</h1>
           <p>
             {test.code} ·{" "}
-            {test.laboratoryId
-              ? "Laboratory-specific"
-              : "Global template"}
+            {test.laboratoryId ? "Laboratory-specific" : "Global template"}
           </p>
         </div>
 
@@ -473,28 +449,22 @@ export function TestDetail() {
 
       <section className="panel">
         <h2>Test information</h2>
-
         <p>
           <strong>Code:</strong> {test.code}
         </p>
-
         <p>
           <strong>Name:</strong> {test.name}
         </p>
-
         {test.description ? (
           <p>
-            <strong>Description:</strong>{" "}
-            {test.description}
+            <strong>Description:</strong> {test.description}
           </p>
         ) : null}
       </section>
 
       <section className="panel">
         <div className="panel-heading">
-          <h2>
-            Parameters ({test.parameters?.length ?? 0})
-          </h2>
+          <h2>Parameters ({test.parameters?.length ?? 0})</h2>
         </div>
 
         {test.parameters?.length ? (
@@ -514,9 +484,7 @@ export function TestDetail() {
                   <td>{parameter.order}</td>
                   <td>{parameter.name}</td>
                   <td>{parameter.unit || "—"}</td>
-                  <td>
-                    {parameter.referenceRange || "—"}
-                  </td>
+                  <td>{parameter.referenceRange || "—"}</td>
                 </tr>
               ))}
             </tbody>
