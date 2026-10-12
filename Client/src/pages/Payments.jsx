@@ -18,9 +18,15 @@ function toNumber(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function getBillableItemPrice(item) {
+  const orderPrice = toNumber(item.price);
+
+  return orderPrice > 0 ? orderPrice : toNumber(item.testDefinition?.price);
+}
+
 function calculateBilling(order) {
   const totalAmount = (order.orderedTestItems || []).reduce(
-    (sum, item) => sum + toNumber(item.price),
+    (sum, item) => sum + getBillableItemPrice(item),
     0,
   );
 
@@ -32,7 +38,9 @@ function calculateBilling(order) {
 
   let paymentStatus = "UNPAID";
 
-  if (paidAmount >= totalAmount && totalAmount > 0) {
+  if (totalAmount <= 0 && paidAmount > 0) {
+    paymentStatus = "PAID";
+  } else if (paidAmount >= totalAmount && totalAmount > 0) {
     paymentStatus = "PAID";
   } else if (paidAmount > 0) {
     paymentStatus = "PARTIALLY_PAID";
@@ -313,7 +321,11 @@ export default function Payments() {
                   {item.testDefinition.name}
                 </span>
 
-                <strong>{toNumber(item.price).toFixed(2)}</strong>
+                <strong>
+                  {getBillableItemPrice(item) > 0
+                    ? getBillableItemPrice(item).toFixed(2)
+                    : "—"}
+                </strong>
               </div>
             ))}
           </div>
@@ -321,7 +333,12 @@ export default function Payments() {
           <div className="thermal-receipt-totals">
             <div>
               <span>Total</span>
-              <strong>{billing.totalAmount.toFixed(2)}</strong>
+              <strong>
+                {(billing.totalAmount > 0
+                  ? billing.totalAmount
+                  : toNumber(printPayment.amount)
+                ).toFixed(2)}
+              </strong>
             </div>
 
             <div>

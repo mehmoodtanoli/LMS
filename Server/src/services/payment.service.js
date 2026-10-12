@@ -361,6 +361,12 @@ function roundMoney(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function getBillableItemPrice(item) {
+  const orderPrice = toNumber(item.price);
+
+  return orderPrice > 0 ? orderPrice : toNumber(item.testDefinition?.price);
+}
+
 /**
  * Calculate billing information for an order.
  *
@@ -373,7 +379,7 @@ function roundMoney(value) {
 function calculateOrderBilling(order) {
   const totalAmount = roundMoney(
     (order.orderedTestItems || []).reduce(
-      (sum, item) => sum + toNumber(item.price),
+      (sum, item) => sum + getBillableItemPrice(item),
       0,
     ),
   );
@@ -434,25 +440,11 @@ async function findAccessibleTestOrder({ user, orderId }) {
 }
 
 /**
- * Ensure an order has at least one priced test.
- */
-function assertOrderHasValidTotal(order) {
-  const billing = calculateOrderBilling(order);
-
-  if (billing.totalAmount <= 0) {
-    throw new ApiError(
-      400,
-      "This order does not have a valid billable total. Add priced tests before recording payment.",
-    );
-  }
-
-  return billing;
-}
-
-/**
  * Create a payment against an order.
  *
- * The payment cannot exceed the remaining balance.
+ * The payment cannot exceed the remaining balance when test prices exist.
+ * For orders without prices, the entered payment amount is the source of
+ * truth because the lab is recording the amount manually.
  *
  * The client does not need to calculate the remaining amount itself;
  * the server calculates it from the database.
@@ -479,10 +471,10 @@ async function createPayment({ user, data }) {
     orderId,
   });
 
-  const billing = assertOrderHasValidTotal(order);
+  const billing = calculateOrderBilling(order);
   const paymentAmount = toNumber(paymentData.amount);
 
-  if (paymentAmount > billing.remainingAmount) {
+  if (billing.totalAmount > 0 && paymentAmount > billing.remainingAmount) {
     throw new ApiError(
       400,
       `Payment amount cannot exceed the remaining balance of ${billing.remainingAmount.toFixed(

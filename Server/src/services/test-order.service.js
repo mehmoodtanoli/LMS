@@ -1,5 +1,4 @@
 import prisma from "../config/prisma.js";
-
 import ApiError from "../utils/ApiError.js";
 
 const UUID_PATTERN =
@@ -88,6 +87,10 @@ const TEST_ORDER_SELECT = {
   },
 };
 
+/* -------------------------------------------------------------------------- */
+/* Validation helpers                                                         */
+/* -------------------------------------------------------------------------- */
+
 function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -98,7 +101,7 @@ function normalizeOptionalString(value) {
 }
 
 function assertUuid(value, fieldName) {
-  if (!UUID_PATTERN.test(value)) {
+  if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
     throw new ApiError(400, `${fieldName} must be a valid UUID.`, {
       field: fieldName,
     });
@@ -147,21 +150,22 @@ function parsePagination(query) {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Access control                                                             */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Access rules:
- *
  * SUPERADMIN:
- * - Full access.
+ * - Can access orders across all laboratories.
  *
  * LAB_ADMIN:
- * - Full access to orders belonging to their laboratory.
+ * - Can access orders belonging to their assigned laboratory.
  *
  * LAB_TECH:
- * - Read access to orders belonging to their laboratory.
- * - Order creation/deletion remains restricted.
- * - Order status mutation remains restricted until the technician
- *   workflow is finalized separately.
+ * - Can read orders belonging to their assigned laboratory.
+ * - Cannot create, update, or delete orders.
  */
+
 function assertTestOrderReadScope(user) {
   if (user.role === "SUPERADMIN") {
     return null;
@@ -223,6 +227,10 @@ function buildListWhere(user) {
   return {};
 }
 
+/* -------------------------------------------------------------------------- */
+/* Order update validation                                                    */
+/* -------------------------------------------------------------------------- */
+
 function buildOrderUpdateData(data) {
   const updateData = {};
 
@@ -233,7 +241,7 @@ function buildOrderUpdateData(data) {
   if (data.notes !== undefined) {
     const notes = normalizeOptionalString(data.notes);
 
-    if (data.notes !== null && data.notes !== undefined && !notes) {
+    if (data.notes !== null && !notes) {
       throw new ApiError(400, "notes cannot be empty if provided.", {
         field: "notes",
       });
@@ -248,7 +256,12 @@ function buildOrderUpdateData(data) {
 }
 
 function assertNoImmutableOverrides(data) {
-  const immutableFields = ["patientId", "testDefinitionId", "laboratoryId"];
+  const immutableFields = [
+    "patientId",
+    "testDefinitionId",
+    "testDefinitionIds",
+    "laboratoryId",
+  ];
 
   const providedFields = immutableFields.filter(
     (field) => data[field] !== undefined,
@@ -257,13 +270,17 @@ function assertNoImmutableOverrides(data) {
   if (providedFields.length > 0) {
     throw new ApiError(
       400,
-      "patientId, testDefinitionId, and laboratoryId cannot be changed on an existing order.",
+      "Patient, test definitions, and laboratory cannot be changed on an existing order.",
       {
         fields: providedFields,
       },
     );
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Prisma error handling                                                      */
+/* -------------------------------------------------------------------------- */
 
 function handlePrismaError(error) {
   if (error?.code === "P2003") {
@@ -294,6 +311,10 @@ function handlePrismaError(error) {
 
   throw error;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Patient and test access                                                    */
+/* -------------------------------------------------------------------------- */
 
 async function findAccessiblePatient({ user, patientId }) {
   assertUuid(patientId, "patientId");
@@ -420,12 +441,14 @@ function assertSameLaboratory(patient, testDefinition) {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Create one order containing one or multiple tests                          */
+/* -------------------------------------------------------------------------- */
+
 async function createTestOrder({ user, data }) {
-  // LAB_TECH cannot create orders.
   assertTestOrderManageScope(user);
 
-  const patientId = normalizeString(data.patientId);
-  const testDefinitionId = normalizeString(data.testDefinitionId);
+  const patientId = normalizeString(data?.patientId);
 
   if (!patientId) {
     throw new ApiError(400, "patientId is required.", {
@@ -433,25 +456,85 @@ async function createTestOrder({ user, data }) {
     });
   }
 
-  if (!testDefinitionId) {
-    throw new ApiError(400, "testDefinitionId is required.", {
-      field: "testDefinitionId",
+  /*
+   * New format:
+   * {
+   *   patientId: "...",
+   *   testDefinitionIds: ["...", "..."]
+   * }
+   *
+   * Backward-compatible format:
+   * {
+   *   patientId: "...",
+   *   testDefinitionId: "..."
+   * }
+   */
+
+  let testDefinitionIds;
+
+  if (data?.testDefinitionIds !== undefined) {
+    if (!Array.isArray(data.testDefinitionIds)) {
+      throw new ApiError(
+        400,
+        "testDefinitionIds must be an array of test IDs.",
+        {
+          field: "testDefinitionIds",
+        },
+      );
+    }
+
+    testDefinitionIds = data.testDefinitionIds;
+  } else {
+    const singleTestId = normalizeString(data?.testDefinitionId);
+
+    testDefinitionIds = singleTestId ? [singleTestId] : [];
+  }
+
+  if (testDefinitionIds.length === 0) {
+    throw new ApiError(400, "Select at least one test.", {
+      field: "testDefinitionIds",
     });
   }
 
+  testDefinitionIds = testDefinitionIds.map((id) => {
+    if (typeof id !== "string" || !id.trim()) {
+      throw new ApiError(400, "Every selected test must have a valid UUID.", {
+        field: "testDefinitionIds",
+      });
+    }
+
+    return id.trim();
+  });
+
+  if (new Set(testDefinitionIds).size !== testDefinitionIds.length) {
+    throw new ApiError(400, "Duplicate tests are not allowed.", {
+      field: "testDefinitionIds",
+    });
+  }
+
+  // Validate the patient against the user's access permissions.
   const patient = await findAccessiblePatient({
     user,
     patientId,
   });
 
-  const testDefinition = await findAccessibleTestDefinition({
-    user,
-    testDefinitionId,
-  });
+  // Fetch and validate all selected tests.
+  const testDefinitions = await Promise.all(
+    testDefinitionIds.map((testDefinitionId) =>
+      findAccessibleTestDefinition({
+        user,
+        testDefinitionId,
+      }),
+    ),
+  );
 
-  assertSameLaboratory(patient, testDefinition);
+  // Every test must be accessible and compatible with the patient's lab.
+  for (const testDefinition of testDefinitions) {
+    assertSameLaboratory(patient, testDefinition);
+  }
 
-  const requestedLaboratoryId = normalizeOptionalString(data.laboratoryId);
+  // Validate an optional laboratory ID if supplied by the caller.
+  const requestedLaboratoryId = normalizeOptionalString(data?.laboratoryId);
 
   const derivedLaboratoryId = patient.laboratoryId;
 
@@ -461,7 +544,7 @@ async function createTestOrder({ user, data }) {
     if (requestedLaboratoryId !== derivedLaboratoryId) {
       throw new ApiError(
         400,
-        "laboratoryId must match the patient and test definition laboratory.",
+        "laboratoryId must match the patient's laboratory.",
         {
           field: "laboratoryId",
         },
@@ -469,19 +552,29 @@ async function createTestOrder({ user, data }) {
     }
   }
 
-  const notes =
-    data.notes === undefined ? undefined : normalizeOptionalString(data.notes);
+  let notes;
 
-  if (data.notes !== null && data.notes !== undefined && !notes) {
-    throw new ApiError(400, "notes cannot be empty if provided.", {
-      field: "notes",
-    });
+  if (data?.notes !== undefined) {
+    notes = normalizeOptionalString(data.notes);
+
+    if (!notes) {
+      throw new ApiError(400, "notes cannot be empty if provided.", {
+        field: "notes",
+      });
+    }
   }
 
   const status =
-    data.status === undefined ? undefined : normalizeOrderStatus(data.status);
+    data?.status === undefined ? undefined : normalizeOrderStatus(data.status);
 
   try {
+    /*
+     * Important:
+     * A single TestOrder is created with multiple OrderedTestItems.
+     *
+     * Each item's price is saved as a snapshot so future changes to
+     * TestDefinition.price do not change historical bills.
+     */
     return await prisma.testOrder.create({
       data: {
         laboratoryId: derivedLaboratoryId,
@@ -491,12 +584,10 @@ async function createTestOrder({ user, data }) {
         ...(notes !== undefined ? { notes } : {}),
 
         orderedTestItems: {
-          create: {
-            testDefinitionId,
-
-            // Snapshot the catalog price at order creation time.
+          create: testDefinitions.map((testDefinition) => ({
+            testDefinitionId: testDefinition.id,
             price: testDefinition.price,
-          },
+          })),
         },
       },
 
@@ -507,6 +598,10 @@ async function createTestOrder({ user, data }) {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* List orders                                                                */
+/* -------------------------------------------------------------------------- */
+
 async function listTestOrders({ user, query }) {
   const where = buildListWhere(user);
 
@@ -516,11 +611,14 @@ async function listTestOrders({ user, query }) {
   const [orders, total] = await prisma.$transaction([
     prisma.testOrder.findMany({
       where,
+
       orderBy: {
         createdAt: "desc",
       },
+
       skip,
       take: limit,
+
       select: TEST_ORDER_SELECT,
     }),
 
@@ -541,6 +639,10 @@ async function listTestOrders({ user, query }) {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Get one order                                                              */
+/* -------------------------------------------------------------------------- */
+
 async function getTestOrderById({ user, orderId }) {
   assertUuid(orderId, "id");
 
@@ -560,8 +662,12 @@ async function getTestOrderById({ user, orderId }) {
   return order;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Update an order                                                            */
+/* -------------------------------------------------------------------------- */
+
 async function updateTestOrder({ user, orderId, data }) {
-  // LAB_TECH does not currently get order mutation rights.
+  // LAB_TECH does not currently have order mutation permissions.
   assertTestOrderManageScope(user);
 
   assertUuid(orderId, "id");
@@ -606,6 +712,10 @@ async function updateTestOrder({ user, orderId, data }) {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Delete an order                                                            */
+/* -------------------------------------------------------------------------- */
+
 async function deleteTestOrder({ user, orderId }) {
   // LAB_TECH cannot delete orders.
   assertTestOrderManageScope(user);
@@ -639,6 +749,10 @@ async function deleteTestOrder({ user, orderId }) {
 
   return order;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Exports                                                                    */
+/* -------------------------------------------------------------------------- */
 
 export {
   createTestOrder,
