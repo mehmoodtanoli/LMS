@@ -1945,3 +1945,27 @@ a {
     padding: 20px;
   }
 }
+
+.lab-avatar-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: #eff6ff;
+  color: #1e40af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lab-avatar-icon-lg {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: #eff6ff;
+  color: #1e40af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
