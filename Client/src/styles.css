@@ -83,6 +83,25 @@ a {
   text-decoration: none;
 }
 
+/* Custom sleek scrollbar for entire application */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 /* ==========================================================================
    App Shell Layout (Blue Left Bar + White Dashboard)
    ========================================================================== */
@@ -90,38 +109,48 @@ a {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: var(--bg-base);
 }
 
 /* Sidebar (Left Bar: Blue) */
 .sidebar {
-  width: 250px;
-  flex: 0 0 250px;
+  width: 252px;
+  flex: 0 0 252px;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
   display: flex;
   flex-direction: column;
   color: var(--sidebar-text);
   user-select: none;
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
   position: sticky;
   top: 0;
-  height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 /* Brand */
 .brand {
-  padding: 24px 20px;
+  padding: 18px 20px;
   display: flex;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--sidebar-border);
+  flex-shrink: 0;
 }
 
 .brand-icon-box {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.12);
   display: flex;
@@ -138,7 +167,7 @@ a {
 
 .brand-title {
   color: #ffffff;
-  font-size: 1.05rem;
+  font-size: 1.04rem;
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.2;
@@ -154,10 +183,20 @@ a {
 /* Navigation Links */
 .sidebar-nav {
   flex: 1;
-  padding: 20px 14px;
+  padding: 16px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE / Edge */
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .nav-item {
@@ -171,6 +210,7 @@ a {
   font-weight: 500;
   text-decoration: none;
   transition: all 0.18s ease;
+  flex-shrink: 0;
 }
 
 .nav-item:hover {
@@ -183,7 +223,7 @@ a {
   background: #ffffff;
   color: #0e2a47;
   font-weight: 600;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
 }
 
 .nav-item.active .nav-icon {
@@ -196,20 +236,20 @@ a {
 }
 
 .nav-group {
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--sidebar-border);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 .nav-group-title {
   padding: 0 14px 6px;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: #64748b;
 }
 
@@ -217,15 +257,16 @@ a {
 .sidebar-footer {
   padding: 16px;
   border-top: 1px solid var(--sidebar-border);
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .sidebar-address {
   font-size: 0.72rem;
-  line-height: 1.4;
+  line-height: 1.45;
   color: #94a3b8;
 }
 
@@ -237,7 +278,7 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-top: 10px;
+  padding-top: 12px;
   border-top: 1px solid var(--sidebar-border);
 }
 
@@ -247,7 +288,7 @@ a {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.16);
   color: #ffffff;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -264,7 +305,7 @@ a {
 
 .user-name {
   color: #ffffff;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -291,8 +332,36 @@ a {
 }
 
 .sidebar-logout-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
+}
+
+/* Gracefully scale down for shorter viewports */
+@media (max-height: 740px) {
+  .brand {
+    padding: 13px 16px;
+  }
+  .brand-icon-box {
+    width: 32px;
+    height: 32px;
+  }
+  .sidebar-nav {
+    padding: 10px 12px;
+    gap: 3px;
+  }
+  .nav-item {
+    padding: 8px 12px;
+    font-size: 0.84rem;
+  }
+  .nav-group {
+    margin-top: 10px;
+    padding-top: 10px;
+    gap: 3px;
+  }
+  .sidebar-footer {
+    padding: 12px 14px;
+    gap: 8px;
+  }
 }
 
 /* Workspace Main Canvas (White Dashboard) */
@@ -302,11 +371,13 @@ a {
   display: flex;
   flex-direction: column;
   background: var(--bg-base);
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .workspace-content {
   flex: 1;
-  padding: 32px 40px;
+  padding: 24px 32px;
   max-width: 1400px;
   width: 100%;
   box-sizing: border-box;
