@@ -122,6 +122,7 @@ export default function Orders() {
   const [modalDoctor, setModalDoctor] = useState("");
   const [modalSelectedTests, setModalSelectedTests] = useState([]);
   const [modalNotes, setModalNotes] = useState("");
+  const [modalTestSearch, setModalTestSearch] = useState("");
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [modalError, setModalError] = useState("");
 
@@ -179,6 +180,24 @@ export default function Orders() {
     });
   }, [orders, search, statusFilter]);
 
+  // Filtered tests in New Order modal
+  const filteredModalTests = useMemo(() => {
+    if (!modalTestSearch.trim()) return tests;
+    const q = modalTestSearch.toLowerCase();
+    return tests.filter((test) => {
+      const name = (test.name || "").toLowerCase();
+      const code = (test.code || "").toLowerCase();
+      const category = getTestCategory(test).toLowerCase();
+      const desc = (test.description || "").toLowerCase();
+      return (
+        name.includes(q) ||
+        code.includes(q) ||
+        category.includes(q) ||
+        desc.includes(q)
+      );
+    });
+  }, [tests, modalTestSearch]);
+
   // Handle modal submit
   const handleCreateOrder = async (e) => {
     e.preventDefault();
@@ -220,6 +239,7 @@ export default function Orders() {
       setModalDoctor("");
       setModalSelectedTests([]);
       setModalNotes("");
+      setModalTestSearch("");
       loadData();
     } catch (err) {
       setModalError(apiError(err));
@@ -255,6 +275,7 @@ export default function Orders() {
           className="btn-primary-action"
           onClick={() => {
             setModalError("");
+            setModalTestSearch("");
             setIsModalOpen(true);
           }}
         >
@@ -500,12 +521,41 @@ export default function Orders() {
 
               {/* Select Tests */}
               <div className="form-group-clean">
-                <label>Select Tests</label>
+                <div className="test-selection-header-row">
+                  <label>Select Tests</label>
+                  {modalSelectedTests.length > 0 && (
+                    <span className="test-selected-badge">
+                      {modalSelectedTests.length} selected
+                    </span>
+                  )}
+                </div>
+
+                {/* Test Search Bar */}
+                <div className="modal-test-search-box">
+                  <Search size={15} className="modal-test-search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Search tests by name, code, or department..."
+                    value={modalTestSearch}
+                    onChange={(e) => setModalTestSearch(e.target.value)}
+                  />
+                  {modalTestSearch && (
+                    <button
+                      type="button"
+                      className="modal-test-search-clear"
+                      onClick={() => setModalTestSearch("")}
+                      title="Clear search"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
                 <div className="test-selection-list">
-                  {tests.map((test) => {
+                  {filteredModalTests.map((test) => {
                     const isChecked = modalSelectedTests.includes(test.id);
                     const category = getTestCategory(test);
-                    const paramCount = test.parameters?.length || 5;
+                    const paramCount = test.parameters?.length || 2;
                     const price = getTestPrice(test);
 
                     return (
@@ -536,8 +586,12 @@ export default function Orders() {
                       </div>
                     );
                   })}
-                  {!tests.length && (
-                    <div className="empty-subtext">No tests available in catalog.</div>
+                  {!filteredModalTests.length && (
+                    <div className="empty-subtext" style={{ textAlign: "center", padding: "18px 8px" }}>
+                      {modalTestSearch
+                        ? `No tests found matching "${modalTestSearch}"`
+                        : "No tests available in catalog."}
+                    </div>
                   )}
                 </div>
               </div>

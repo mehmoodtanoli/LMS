@@ -1383,9 +1383,89 @@ a {
   appearance: none;
 }
 
+/* Test Selection Header Row in Modal */
+.test-selection-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.test-selection-header-row label {
+  margin: 0;
+}
+
+.test-selected-badge {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+}
+
+/* Modal Test Search Bar */
+.modal-test-search-box {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0 12px;
+  height: 38px;
+  margin-bottom: 8px;
+  transition: all 0.18s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.modal-test-search-box:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.1);
+}
+
+.modal-test-search-box input {
+  flex: 1;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  padding: 0 8px !important;
+  height: 100% !important;
+  font-size: 0.85rem !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+.modal-test-search-box input::placeholder {
+  color: var(--text-muted);
+}
+
+.modal-test-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.modal-test-search-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.modal-test-search-clear:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
 /* Scrollable Test Selection List in Modal (Image 2) */
 .test-selection-list {
-  max-height: 250px;
+  max-height: 240px;
   overflow-y: auto;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
