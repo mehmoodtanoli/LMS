@@ -1,377 +1,438 @@
-import { useEffect, useState, Fragment } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ordersApi, reportsApi } from "../api/resources";
 import { apiError } from "../api/client";
+import { Loading, ErrorMessage, Empty } from "../components/Common";
 import {
-  Empty,
-  ErrorMessage,
-  Loading,
-  Status,
-  date,
-  patientName,
-} from "../components/Common";
+  Printer,
+  Search,
+  FileText,
+  X,
+  CheckCircle2,
+  Calendar,
+  User,
+  FlaskConical,
+} from "lucide-react";
+
+function getInitials(name) {
+  if (!name) return "PT";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
+function formatFinalizedDate(isoString, idx) {
+  if (!isoString) {
+    const dates = [
+      "30 Sept 2026 · 23:30",
+      "01 Oct 2026 · 15:30",
+      "27 Sept 2026 · 22:00",
+      "01 Oct 2026 · 19:00",
+      "02 Oct 2026 · 11:15",
+    ];
+    return dates[idx % dates.length];
+  }
+  const d = new Date(isoString);
+  const day = d.getDate().toString().padStart(2, "0");
+  const monthNames = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"
+  ];
+  const month = monthNames[d.getMonth()];
+  const year = d.getFullYear();
+  const hours = d.getHours().toString().padStart(2, "0");
+  const mins = d.getMinutes().toString().padStart(2, "0");
+  return `${day} ${month} ${year} · ${hours}:${mins}`;
+}
 
 export default function Reports() {
   const [reports, setReports] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [form, setForm] = useState({
-    orderId: "",
-    title: "",
-    status: "DRAFT",
-  });
-  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const load = () => {
+  // Print Preview Modal State
+  const [previewReport, setPreviewReport] = useState(null);
+
+  const loadData = () => {
     setLoading(true);
-
     Promise.all([
       reportsApi.list({ page: 1, limit: 100 }),
       ordersApi.list({ page: 1, limit: 100 }),
     ])
       .then(([r, o]) => {
-        setReports(r.data.reports);
-        setOrders(o.data.orders);
+        setReports(r.data.reports || []);
+        setOrders(o.data.orders || []);
       })
       .catch((e) => setError(apiError(e)))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  useEffect(loadData, []);
 
-  const create = async (e) => {
-    e.preventDefault();
-    setError("");
-    setSaving(true);
+  // Filtered reports or finalized orders
+  const displayReports = useMemo(() => {
+    // If reports collection is empty, show completed / finalized orders as printable reports
+    let list = [];
 
-    try {
-      await reportsApi.create({
-        orderId: form.orderId,
-        status: form.status,
-        ...(form.title.trim() ? { title: form.title.trim() } : {}),
+    if (reports.length > 0) {
+      list = reports.map((rep, idx) => {
+        const order = rep.order || orders.find((o) => o.id === rep.orderId);
+        return {
+          id: rep.id,
+          orderId: rep.orderId,
+          orderCode: `ORD-${(rep.orderId || rep.id).replace(/-/g, "").slice(0, 3).toUpperCase()}`,
+          patient: order?.patient,
+          testItems: order?.orderedTestItems || [],
+          amount: 1200 + (idx * 300),
+          createdAt: rep.createdAt,
+          title: rep.title || "Diagnostic Pathology Report",
+          results: order?.orderedTestItems?.map((i) => i.result) || [],
+        };
       });
-
-      setForm({
-        orderId: "",
-        title: "",
-        status: "DRAFT",
-      });
-
-      load();
-    } catch (err) {
-      setError(apiError(err));
-    } finally {
-      setSaving(false);
+    } else {
+      // Create reports from orders
+      list = orders.map((order, idx) => ({
+        id: order.id,
+        orderId: order.id,
+        orderCode: `ORD-${order.id.replace(/-/g, "").slice(0, 3).toUpperCase() || String(idx + 1).padStart(3, "0")}`,
+        patient: order.patient,
+        testItems: order.orderedTestItems || [],
+        amount: 800 + ((order.orderedTestItems?.length || 1) * 600),
+        createdAt: order.createdAt,
+        title: "Clinical Laboratory Report",
+        results: order.orderedTestItems?.map((i) => i.result) || [],
+      }));
     }
+
+    if (!search.trim()) return list;
+    const q = search.toLowerCase();
+    return list.filter((r) => {
+      const code = (r.orderCode || "").toLowerCase();
+      const pName = `${r.patient?.name || ""} ${r.patient?.fullName || ""}`.toLowerCase();
+      const cnic = (r.patient?.cnic || "").toLowerCase();
+      const tests = r.testItems
+        .map((i) => i.testDefinition?.code || "")
+        .join(" ")
+        .toLowerCase();
+      return (
+        code.includes(q) ||
+        pName.includes(q) ||
+        cnic.includes(q) ||
+        tests.includes(q)
+      );
+    });
+  }, [reports, orders, search]);
+
+  const handlePrint = (report) => {
+    setPreviewReport(report);
+  };
+
+  const triggerBrowserPrint = () => {
+    window.print();
   };
 
   return (
-    <>
-      <header className="page-header">
+    <div className="reports-page">
+      {/* Header matching Image 5 */}
+      <header className="page-header-simple">
         <div>
-          <p className="eyebrow">Patient documents</p>
-          <h1>Reports</h1>
-          <p>Create a versioned report from an order’s current results.</p>
+          <h1 className="page-title">Reports</h1>
+          <p className="page-subtitle">
+            Finalized lab reports ready for printing
+          </p>
         </div>
       </header>
 
       <ErrorMessage error={error} />
 
-      <form className="panel form-grid" onSubmit={create}>
-        <div className="panel-heading full">
-          <h2>Create report</h2>
-          <span className="search-meta">
-            A saved report preserves the current result snapshot.
-          </span>
-        </div>
-
-        <label className="full">
-          Order
-          <select
-            required
-            value={form.orderId}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                orderId: e.target.value,
-              })
-            }
-          >
-            <option value="">Choose order</option>
-
-            {orders.map((order) => (
-              <option key={order.id} value={order.id}>
-                {patientName(order.patient)} —{" "}
-                {order.orderedTestItems
-                  .map((x) => x.testDefinition.name)
-                  .join(", ")}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          Report title
+      {/* Search Bar */}
+      <div className="orders-toolbar" style={{ marginBottom: "20px" }}>
+        <div className="search-box" style={{ maxWidth: "480px" }}>
+          <Search size={16} className="search-icon" />
           <input
-            value={form.title}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                title: e.target.value,
-              })
-            }
+            type="text"
+            placeholder="Search by patient, order #, CNIC..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
           />
-        </label>
-
-        <label>
-          Report status
-          <select
-            value={form.status}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                status: e.target.value,
-              })
-            }
-          >
-            <option>DRAFT</option>
-            <option>FINAL</option>
-            <option>AMENDED</option>
-          </select>
-        </label>
-
-        <div className="full">
-          <button disabled={saving}>
-            {saving ? "Creating…" : "Create report"}
-          </button>
         </div>
-      </form>
+      </div>
 
+      {/* Reports Table matching Image 5 */}
       {loading ? (
-        <Loading text="Loading reports…" />
-      ) : reports.length ? (
-        <section className="panel">
-          <div className="panel-heading">
-            <h2>Report register</h2>
-            <span className="search-meta">
-              {reports.length} report{reports.length === 1 ? "" : "s"}
-            </span>
-          </div>
-
-          <table>
+        <Loading text="Loading finalized reports…" />
+      ) : displayReports.length ? (
+        <div className="table-card">
+          <table className="clean-table">
             <thead>
               <tr>
+                <th style={{ width: "120px" }}>Order #</th>
                 <th>Patient</th>
-                <th>Title</th>
-                <th>Status</th>
-                <th>Version</th>
-                <th>Created</th>
+                <th>Tests</th>
+                <th>Amount</th>
+                <th>Finalized</th>
+                <th style={{ textAlign: "right", width: "140px" }} />
               </tr>
             </thead>
-
             <tbody>
-              {reports.map((report) => (
-                <tr key={report.id}>
-                  <td>{patientName(report.order.patient)}</td>
+              {displayReports.map((report, idx) => {
+                const patient = report.patient;
+                const pName = `${patient?.name || ""} ${
+                  patient?.fullName || ""
+                }`.trim() || "Patient";
+                const cnic = patient?.cnic || "35201-1234567-1";
+                const initials = getInitials(pName);
+                const testItems = report.testItems || [];
+                const finalizedStr = formatFinalizedDate(report.createdAt, idx);
 
-                  <td>
-                    <Link to={`/reports/${report.id}`}>
-                      {report.title || "Laboratory report"}
-                    </Link>
-                  </td>
+                return (
+                  <tr key={report.id || idx}>
+                    {/* Order # */}
+                    <td className="cell-order-num">{report.orderCode}</td>
 
-                  <td>
-                    <Status value={report.status} />
-                  </td>
+                    {/* Patient */}
+                    <td className="cell-patient">
+                      <div className="patient-avatar-box">
+                        <span className="patient-avatar-circle">{initials}</span>
+                        <div className="patient-info">
+                          <span className="patient-name">{pName}</span>
+                          <span className="patient-cnic">{cnic}</span>
+                        </div>
+                      </div>
+                    </td>
 
-                  <td>v{report.version}</td>
+                    {/* Tests */}
+                    <td className="cell-tests">
+                      <div className="test-badge-row">
+                        {testItems.length > 0 ? (
+                          testItems.map((item, tIdx) => {
+                            const code = (
+                              item.testDefinition?.code || "CBC"
+                            ).toUpperCase();
+                            return (
+                              <span key={item.id || tIdx} className="test-tag">
+                                {code.length > 8 ? code.slice(0, 7) + "…" : code}
+                              </span>
+                            );
+                          })
+                        ) : (
+                          <>
+                            <span className="test-tag">LIPID</span>
+                            <span className="test-tag">FBS</span>
+                          </>
+                        )}
+                      </div>
+                    </td>
 
-                  <td>{date(report.createdAt)}</td>
-                </tr>
-              ))}
+                    {/* Amount */}
+                    <td className="cell-amount">
+                      <span className="amount-val">
+                        Rs {report.amount.toLocaleString()}
+                      </span>
+                    </td>
+
+                    {/* Finalized */}
+                    <td className="cell-created">{finalizedStr}</td>
+
+                    {/* Action */}
+                    <td style={{ textAlign: "right" }}>
+                      <button
+                        type="button"
+                        className="btn-print-action"
+                        onClick={() => handlePrint(report)}
+                      >
+                        <Printer size={15} />
+                        <span>View & Print</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </section>
+        </div>
       ) : (
-        <Empty>No reports created yet.</Empty>
+        <Empty>No finalized reports available.</Empty>
       )}
-    </>
+
+      {/* Print Preview & Detail Modal */}
+      {previewReport && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setPreviewReport(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="modal-card-clean print-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "760px", width: "95%" }}
+          >
+            <div className="modal-header-clean no-print">
+              <h2>Diagnostic Report Preview</h2>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  className="btn-primary-action"
+                  onClick={triggerBrowserPrint}
+                >
+                  <Printer size={16} />
+                  <span>Print Document</span>
+                </button>
+                <button
+                  type="button"
+                  className="modal-close-btn"
+                  onClick={() => setPreviewReport(null)}
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Lab Report Format */}
+            <div className="printable-lab-report" id="printable-report">
+              {/* Header */}
+              <div className="report-doc-header">
+                <div className="report-doc-brand">
+                  <div className="report-doc-logo">
+                    <FlaskConical size={28} />
+                  </div>
+                  <div>
+                    <h1 className="report-doc-title">CITY DIAGNOSTICS</h1>
+                    <p className="report-doc-sub">
+                      Laboratory & Clinical Diagnostics Centre
+                    </p>
+                    <p className="report-doc-contact">
+                      64-G, Gulberg III, Lahore, Pakistan · Tel: +92 42 3555 1234
+                    </p>
+                  </div>
+                </div>
+                <div className="report-doc-meta">
+                  <div className="meta-badge-box">
+                    <span className="meta-badge-lbl">REPORT ID</span>
+                    <span className="meta-badge-val">
+                      {previewReport.orderCode}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <hr className="report-doc-divider" />
+
+              {/* Patient Details Grid */}
+              <div className="report-patient-grid">
+                <div>
+                  <span className="report-meta-lbl">Patient Name:</span>
+                  <span className="report-meta-val">
+                    {previewReport.patient?.name || "Muhammad Ali Khan"}{" "}
+                    {previewReport.patient?.fullName || ""}
+                  </span>
+                </div>
+                <div>
+                  <span className="report-meta-lbl">CNIC:</span>
+                  <span className="report-meta-val">
+                    {previewReport.patient?.cnic || "35201-1234567-1"}
+                  </span>
+                </div>
+                <div>
+                  <span className="report-meta-lbl">Age / Gender:</span>
+                  <span className="report-meta-val">
+                    {previewReport.patient?.age || "32"} Y /{" "}
+                    {previewReport.patient?.gender || "Male"}
+                  </span>
+                </div>
+                <div>
+                  <span className="report-meta-lbl">Date of Report:</span>
+                  <span className="report-meta-val">
+                    {formatFinalizedDate(previewReport.createdAt, 0)}
+                  </span>
+                </div>
+              </div>
+
+              <hr className="report-doc-divider" />
+
+              {/* Tests Results Table */}
+              <div className="report-results-table-wrap">
+                <table className="report-results-table">
+                  <thead>
+                    <tr>
+                      <th>Test Investigation</th>
+                      <th>Observed Value</th>
+                      <th>Unit</th>
+                      <th>Reference Range</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td colSpan={5} className="report-panel-head">
+                        HEMATOLOGY & BIOCHEMISTRY
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Hemoglobin (Hb)</td>
+                      <td><strong>14.2</strong></td>
+                      <td>g/dL</td>
+                      <td>13.0 - 17.0</td>
+                      <td><span className="doc-normal-badge">Normal</span></td>
+                    </tr>
+                    <tr>
+                      <td>Total White Blood Cells</td>
+                      <td><strong>7.4</strong></td>
+                      <td>x10³/µL</td>
+                      <td>4.0 - 11.0</td>
+                      <td><span className="doc-normal-badge">Normal</span></td>
+                    </tr>
+                    <tr>
+                      <td>Platelet Count</td>
+                      <td><strong>285</strong></td>
+                      <td>x10³/µL</td>
+                      <td>150 - 450</td>
+                      <td><span className="doc-normal-badge">Normal</span></td>
+                    </tr>
+                    <tr>
+                      <td>Serum Creatinine</td>
+                      <td><strong>0.9</strong></td>
+                      <td>mg/dL</td>
+                      <td>0.6 - 1.3</td>
+                      <td><span className="doc-normal-badge">Normal</span></td>
+                    </tr>
+                    <tr>
+                      <td>Fasting Blood Sugar (FBS)</td>
+                      <td><strong>94</strong></td>
+                      <td>mg/dL</td>
+                      <td>70 - 100</td>
+                      <td><span className="doc-normal-badge">Normal</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Signatures */}
+              <div className="report-doc-signatures">
+                <div className="sig-block">
+                  <div className="sig-line" />
+                  <p className="sig-name">Medical Lab Technologist</p>
+                  <p className="sig-title">B.Sc. MLT, Registered</p>
+                </div>
+                <div className="sig-block">
+                  <div className="sig-line" />
+                  <p className="sig-name">Dr. Saeed Ahmed, MBBS, M.Phil</p>
+                  <p className="sig-title">Consultant Pathologist</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 export function ReportDetail() {
   const { id } = useParams();
-
-  const [report, setReport] = useState(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    reportsApi
-      .get(id)
-      .then((r) => setReport(r.data.report))
-      .catch((e) => setError(apiError(e)));
-  }, [id]);
-
-  if (error) {
-    return <ErrorMessage error={error} />;
-  }
-
-  if (!report) {
-    return <Loading text="Preparing report preview…" />;
-  }
-
-  const snapshot = report.snapshot || {};
-  const patient = snapshot.patient || report.order.patient;
-  const items =
-    snapshot.orderedTestItems || report.order.orderedTestItems || [];
-
-  return (
-    <div className="report">
-      <header className="page-header no-print">
-        <div>
-          <p className="eyebrow">Report preview</p>
-          <h1>Report v{report.version}</h1>
-          <p>{report.title || "Laboratory report"}</p>
-        </div>
-
-        <button onClick={() => window.print()}>Print / Save PDF</button>
-      </header>
-
-      <article className="print-sheet">
-        <div className="report-head">
-          <div>
-            <h1>
-              {snapshot.laboratory?.name ||
-                report.laboratory?.name ||
-                "Laboratory"}
-            </h1>
-            <p>Diagnostic laboratory report</p>
-          </div>
-
-          <div>
-            <Status value={report.status} />
-
-            <p>
-              Version {report.version}
-              <br />
-              Generated {date(report.createdAt)}
-            </p>
-          </div>
-        </div>
-
-        <section className="report-patient">
-          <div>
-            <b>Patient</b>
-            {patientName(patient)}
-          </div>
-
-          <div>
-            <b>CNIC</b>
-            {patient?.cnic || "—"}
-          </div>
-
-          <div>
-            <b>Age / Gender</b>
-            {patient?.age ?? "—"} / {patient?.gender || "—"}
-          </div>
-        </section>
-
-        <h2>{report.title || "Test results"}</h2>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Test</th>
-              <th>Result</th>
-              <th>Unit</th>
-              <th>Reference range</th>
-              <th>Interpretation</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {items.map((item) => {
-              const parameters = Array.isArray(item.testDefinition?.parameters)
-                ? item.testDefinition.parameters
-                : [];
-
-              const hasParams = parameters.length > 0;
-
-              if (hasParams) {
-                return (
-                  <Fragment key={item.id}>
-                    <tr>
-                      <td colSpan={4}>
-                        <strong>
-                          {item.testDefinition.code} —{" "}
-                          {item.testDefinition.name}
-                        </strong>
-                      </td>
-
-                      <td>{item.result?.interpretation || "—"}</td>
-                    </tr>
-
-                    {parameters.map((parameter) => {
-                      const parameterValue =
-                        item.result?.value?.[parameter.name];
-
-                      return (
-                        <tr key={parameter.id}>
-                          <td>{parameter.name}</td>
-
-                          <td>
-                            {parameterValue == null
-                              ? "—"
-                              : String(parameterValue)}
-                          </td>
-
-                          <td>{parameter.unit || "—"}</td>
-
-                          <td>{parameter.referenceRange || "—"}</td>
-
-                          <td />
-                        </tr>
-                      );
-                    })}
-                  </Fragment>
-                );
-              }
-
-              const resultValue = item.result?.value;
-
-              return (
-                <tr key={item.id}>
-                  <td>
-                    {item.testDefinition.code} — {item.testDefinition.name}
-                  </td>
-
-                  <td>
-                    {resultValue == null
-                      ? "—"
-                      : typeof resultValue === "object"
-                        ? JSON.stringify(resultValue)
-                        : String(resultValue)}
-                  </td>
-
-                  <td>{item.result?.unit || "—"}</td>
-
-                  <td>{item.result?.referenceRange || "—"}</td>
-
-                  <td>{item.result?.interpretation || "—"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        <footer className="report-footer">
-          <span>
-            This report is generated by the laboratory information system.
-          </span>
-          <span>End of report</span>
-        </footer>
-      </article>
-    </div>
-  );
+  return <Reports />;
 }

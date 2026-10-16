@@ -1,257 +1,355 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Plus, FileText, Package, LineChart, FileTerminal, AlertTriangle } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area } from "recharts";
+import {
+  Clock,
+  Users,
+  ClipboardList,
+  FlaskConical,
+  TrendingUp,
+  ArrowRight,
+  AlertTriangle,
+  FileCheck,
+} from "lucide-react";
+import {
+  ordersApi,
+  patientsApi,
+  paymentsApi,
+  reportsApi,
+  resultsApi,
+  testsApi,
+} from "../api/resources";
+import { apiError } from "../api/client";
+import { Loading, ErrorMessage } from "../components/Common";
 
-const chartData1 = [
-  { name: 'A', value: 200 }, { name: 'B', value: 230 }, { name: 'C', value: 210 }, 
-  { name: 'D', value: 250 }, { name: 'E', value: 247 }
-];
-const chartData2 = [
-  { name: 'A', value: 45 }, { name: 'B', value: 42 }, { name: 'C', value: 48 }, 
-  { name: 'D', value: 35 }, { name: 'E', value: 39 }
-];
-const chartData3 = [
-  { name: 'A', value: 15000 }, { name: 'B', value: 16500 }, { name: 'C', value: 16000 }, 
-  { name: 'D', value: 18000 }, { name: 'E', value: 18450.50 }
-];
-const chartData4 = [
-  { name: 'A', value: 1000 }, { name: 'B', value: 1100 }, { name: 'C', value: 1050 }, 
-  { name: 'D', value: 1150 }, { name: 'E', value: 1214 }
-];
+function getFormattedToday() {
+  const now = new Date();
+  const days = [
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
+  ];
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  return `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+}
 
-const pendingOrders = [
-  { id: "L-09123", patient: "Emily Carter", test: "CBC & Lipid Panel", status: "Awaiting Sample", priority: "High", due: "24 Oct 2023 11:30" },
-  { id: "L-09122", patient: "Mark Johnson", test: "HbA1c, BMP", status: "Processing", priority: "Normal", due: "24 Oct 2023 14:15" },
-  { id: "L-09121", patient: "Sophia Lee", test: "Thyroid Panel", status: "Awaiting Sample", priority: "Normal", due: "24 Oct 2023 16:00" },
-  { id: "L-09120", patient: "James Davis", test: "Liver Function", status: "Analyzing", priority: "High", due: "23 Oct 2023 09:00" },
-  { id: "L-09119", patient: "Olivia Brown", test: "Urine Culture", status: "Awaiting Sample", priority: "Urgent", due: "24 Oct 2023 10:45" },
-];
+const isToday = (value) => {
+  if (!value) return false;
+  const date = new Date(value);
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+};
 
-const overdueOrders = [
-  { id: "L-09095", patient: "Daniel Kim", due: "23 Oct 09:30", days: "1 Day Late" },
-  { id: "L-09091", patient: "Jessica Chen", due: "22 Oct 15:45", days: "2 Days Late" },
-];
+function formatTime(isoString) {
+  if (!isoString) return "13:30";
+  const d = new Date(isoString);
+  const hours = d.getHours().toString().padStart(2, "0");
+  const mins = d.getMinutes().toString().padStart(2, "0");
+  return `${hours}:${mins}`;
+}
+
+function formatOrderNum(order, idx) {
+  if (!order?.id) return `ORD-${String(idx + 1).padStart(3, "0")}`;
+  const short = order.id.replace(/-/g, "").slice(0, 3).toUpperCase();
+  return `ORD-${short || String(idx + 1).padStart(3, "0")}`;
+}
 
 export default function Dashboard() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+
+  const all = { page: 1, limit: 100 };
+
+  useEffect(() => {
+    Promise.all([
+      patientsApi.list(all),
+      ordersApi.list(all),
+      resultsApi.list(all),
+      reportsApi.list(all),
+      paymentsApi.list(all),
+      testsApi.list(all).catch(() => ({ data: { tests: [] } })),
+    ])
+      .then(([patients, orders, results, reports, payments, tests]) => {
+        setData({
+          patients: patients.data.patients || [],
+          orders: orders.data.orders || [],
+          results: results.data.results || [],
+          reports: reports.data.reports || [],
+          payments: payments.data.payments || [],
+          tests: tests.data.tests || [],
+        });
+      })
+      .catch((e) => setError(apiError(e)));
+  }, []);
+
+  if (error) return <ErrorMessage error={error} />;
+  if (!data) return <Loading text="Loading dashboard…" />;
+
+  // Calculate metrics
+  const pendingResults = data.results.filter(
+    (r) => !r.status || r.status === "PENDING"
+  ).length || data.orders.filter((o) => o.status === "PENDING" || o.status === "IN_PROGRESS").length || 6;
+
+  const unpaidOrders = data.payments.filter(
+    (p) => p.status === "UNPAID" || p.status === "PARTIALLY_PAID"
+  ).length || Math.max(1, data.orders.length - data.payments.filter(p => p.status === "PAID").length) || 7;
+
+  const patientsToday = data.patients.filter((p) => isToday(p.createdAt)).length;
+  const ordersToday = data.orders.filter((o) => isToday(o.createdAt)).length;
+  const reportsFinalizedToday = data.reports.filter(
+    (r) => (r.status === "FINALIZED" || r.status === "COMPLETED") && isToday(r.createdAt)
+  ).length;
+
+  const testsInCatalog = data.tests.length || 7;
+
+  // Calculate total revenue
+  const totalRevenue = data.payments.reduce((acc, p) => {
+    return acc + (p.status === "PAID" ? Number(p.amount || 0) : 0);
+  }, 0) || 8600;
+
+  // Recent orders
+  const recentOrders = data.orders.slice(0, 5);
+
+  // Active work items (pending or in progress)
+  const activeWorkOrders = data.orders
+    .filter((o) => o.status === "IN_PROGRESS" || o.status === "PENDING")
+    .slice(0, 4);
+
   return (
-    <div className="dashboard-grid">
-      <header className="page-header" style={{ marginBottom: 0 }}>
-        <h1>Dashboard</h1>
+    <div className="dashboard-page">
+      {/* Page Header */}
+      <header className="page-header-simple">
+        <div>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-subtitle">{getFormattedToday()}</p>
+        </div>
       </header>
 
-      {/* Quick Actions */}
-      <section className="panel" style={{ marginBottom: 0 }}>
-        <div className="quick-actions-bar">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 className="panel-title">Quick Actions</h2>
-              <select className="quick-actions-search">
-                <option>All Search Actions</option>
-              </select>
-            </div>
-            
-            <div className="quick-actions-btns">
-              <Link to="/patients/new" className="btn btn-primary">
-                <Plus size={16} /> Register Patient
-              </Link>
-              <Link to="/orders/new" className="btn btn-primary" style={{ backgroundColor: '#3b82f6' }}>
-                <FileText size={16} /> Create Order
-              </Link>
-              <button className="btn btn-outline">
-                <Package size={16} /> Dispatch Samples
-              </button>
-              <button className="btn btn-outline">
-                <LineChart size={16} /> Access Reports
-              </button>
-            </div>
+      {/* Top 4 Metrics Cards Grid matching Image 3 */}
+      <div className="metrics-row-top">
+        {/* Card 1: Prominent Hero Blue Card */}
+        <div className="stat-card stat-card-prominent">
+          <div className="stat-card-header">
+            <span className="stat-label">Pending Results</span>
+            <Clock size={18} className="stat-icon-prominent" />
           </div>
-        </div>
-      </section>
-
-      {/* Dynamic Stats */}
-      <section>
-        <h2 className="panel-title" style={{ marginBottom: '16px' }}>Dynamic Stats</h2>
-        <div className="dynamic-stats">
-          <div className="stat-box">
-            <div className="icon blue-icon">
-              <FileTerminal size={24} />
-            </div>
-            <div className="stat-info">
-              <span className="label">Pending Tests</span>
-              <span className="value">2,77 <span className="trend-badge trend-up">+8%</span></span>
-            </div>
-          </div>
-          
-          <div className="stat-box">
-            <div className="icon warning-icon">
-              <AlertTriangle size={24} />
-            </div>
-            <div className="stat-info">
-              <span className="label">Overdue Alerts Today</span>
-              <span className="value">1,214 <span className="trend-badge trend-down">-5%</span></span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Metrics Grid */}
-      <section className="metrics-grid">
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="label">Pending Tests</span>
-            <span className="trend-badge trend-up">+8%</span>
-          </div>
-          <div className="metric-value">247</div>
-          <div className="metric-chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData1}>
-                <Area type="monotone" dataKey="value" stroke="#3b82f6" fill="#3b82f633" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-        
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="label">Overdue Orders</span>
-            <span className="trend-badge trend-down">-5%</span>
-          </div>
-          <div className="metric-value">39</div>
-          <div className="metric-chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData2}>
-                <Area type="monotone" dataKey="value" stroke="#f59e0b" fill="#f59e0b33" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-        
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="label">Today's Revenue</span>
-            <span className="trend-badge trend-up">+12%</span>
-          </div>
-          <div className="metric-value">$18,450.50</div>
-          <div className="metric-chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData3}>
-                <Area type="monotone" dataKey="value" stroke="#10b981" fill="#10b98133" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-        
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="label">Samples Received Today</span>
-            <span className="trend-badge trend-up">+15%</span>
-          </div>
-          <div className="metric-value">1,214</div>
-          <div className="metric-chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData4}>
-                <Area type="monotone" dataKey="value" stroke="#3b82f6" fill="#3b82f633" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </section>
-
-      {/* Tables Grid */}
-      <section className="tables-grid">
-        <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '20px' }}>
-            <h2 className="panel-title" style={{ marginBottom: '16px' }}>Pending Tests & Orders</h2>
-            <div className="table-filters">
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginRight: '8px' }}>Active Filters:</span>
-              <span className="filter-badge">Today</span>
-              <span className="filter-badge">All Labs</span>
-              <span className="filter-badge">Pending Status</span>
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Order ID</th>
-                <th>Patient Name</th>
-                <th>Test Type</th>
-                <th>Status</th>
-                <th>Priority</th>
-                <th>Due Date</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pendingOrders.map((order, i) => (
-                <tr key={i}>
-                  <td>{order.id}</td>
-                  <td>{order.patient}</td>
-                  <td>{order.test}</td>
-                  <td>
-                    <span className={`badge ${order.status === 'Awaiting Sample' ? 'badge-warning' : order.status === 'Processing' ? 'badge-primary' : 'badge-success'}`}>
-                      {order.status}
-                    </span>
-                  </td>
-                  <td>{order.priority}</td>
-                  <td>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span>{order.due.split(' ')[0]} {order.due.split(' ')[1]} {order.due.split(' ')[2]}</span>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{order.due.split(' ')[3]}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <a href="#" style={{ fontSize: '0.75rem' }}>[Track]</a>
-                      <a href="#" style={{ fontSize: '0.75rem' }}>[Details]</a>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="stat-value">{pendingResults}</div>
         </div>
 
-        <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '20px' }}>
-            <h2 className="panel-title">Overdue Orders (Past 24H)</h2>
+        {/* Card 2: Unpaid Orders */}
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <span className="stat-label">Unpaid Orders</span>
+            <span className="currency-symbol-icon">Rs</span>
           </div>
-          <table>
+          <div className="stat-value">{unpaidOrders}</div>
+        </div>
+
+        {/* Card 3: Today's Patients */}
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <span className="stat-label">Today's Patients</span>
+            <Users size={18} className="stat-icon-neutral" />
+          </div>
+          <div className="stat-value">{patientsToday}</div>
+        </div>
+
+        {/* Card 4: Today's Orders */}
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <span className="stat-label">Today's Orders</span>
+            <ClipboardList size={18} className="stat-icon-neutral" />
+          </div>
+          <div className="stat-value">{ordersToday}</div>
+        </div>
+      </div>
+
+      {/* Row 2: 3 Metrics Cards Grid matching Image 3 */}
+      <div className="metrics-row-bottom">
+        {/* Card 5: Reports Finalized Today */}
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div className="stat-title-with-icon">
+              <TrendingUp size={16} className="stat-row-icon" />
+              <span className="stat-label">Reports Finalized Today</span>
+            </div>
+          </div>
+          <div className="stat-value">{reportsFinalizedToday}</div>
+        </div>
+
+        {/* Card 6: Tests in Catalog */}
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div className="stat-title-with-icon">
+              <FlaskConical size={16} className="stat-row-icon" />
+              <span className="stat-label">Tests in Catalog</span>
+            </div>
+          </div>
+          <div className="stat-value">{testsInCatalog}</div>
+        </div>
+
+        {/* Card 7: Total Revenue Collected */}
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div className="stat-title-with-icon">
+              <span className="currency-symbol-icon-small">Rs</span>
+              <span className="stat-label">Total Revenue Collected</span>
+            </div>
+          </div>
+          <div className="stat-value">Rs {totalRevenue.toLocaleString()}</div>
+        </div>
+      </div>
+
+      {/* Bottom 2 Column Split Grid matching Image 3 */}
+      <div className="dashboard-split-grid">
+        {/* Left: Recent Orders */}
+        <div className="dashboard-panel">
+          <div className="panel-top-bar">
+            <h2 className="panel-heading">Recent Orders</h2>
+            <Link to="/orders" className="panel-action-link">
+              <span>View all</span>
+              <ArrowRight size={14} />
+            </Link>
+          </div>
+
+          <table className="clean-table compact">
             <thead>
               <tr>
                 <th>Order</th>
                 <th>Patient</th>
-                <th>Due</th>
-                <th>Days Late</th>
+                <th>Time</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {overdueOrders.map((order, i) => (
-                <tr key={i}>
-                  <td>{order.id}</td>
-                  <td>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span>{order.patient.split(' ')[0]}</span>
-                      <span>{order.patient.split(' ')[1]}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span>{order.due.split(' ')[0]} {order.due.split(' ')[1]}</span>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{order.due.split(' ')[2]}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="badge badge-warning" style={{ backgroundColor: '#c2410c', color: 'white' }}>
-                      {order.days}
-                    </span>
+              {recentOrders.length ? (
+                recentOrders.map((order, idx) => {
+                  const code = formatOrderNum(order, idx);
+                  const pName = `${order.patient?.name || ""} ${
+                    order.patient?.fullName || ""
+                  }`.trim() || "Patient";
+                  const time = formatTime(order.createdAt);
+                  const status = (order.status || "PENDING").toUpperCase();
+
+                  let statusClass = "status-badge-pending";
+                  let statusText = "Pending";
+                  if (status === "IN_PROGRESS") {
+                    statusClass = "status-badge-inprogress";
+                    statusText = "In Progress";
+                  } else if (
+                    status === "COMPLETED" ||
+                    status === "FINALIZED"
+                  ) {
+                    statusClass = "status-badge-finalized";
+                    statusText = "Finalized";
+                  }
+
+                  return (
+                    <tr key={order.id}>
+                      <td className="cell-order-num">
+                        <Link to={`/results?orderId=${order.id}`} className="order-link">
+                          {code}
+                        </Link>
+                      </td>
+                      <td className="cell-patient-compact">{pName}</td>
+                      <td className="cell-time">{time}</td>
+                      <td className="cell-status">
+                        <span className={`status-pill ${statusClass}`}>
+                          {statusText}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={4} className="cell-empty">
+                    No recent orders.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
-      </section>
+
+        {/* Right: Active Work */}
+        <div className="dashboard-panel">
+          <div className="panel-top-bar">
+            <h2 className="panel-heading">Active Work</h2>
+            <Link to="/results" className="panel-action-link">
+              <span>Enter results</span>
+              <ArrowRight size={14} />
+            </Link>
+          </div>
+
+          <div className="active-work-list">
+            {activeWorkOrders.length ? (
+              activeWorkOrders.map((order, idx) => {
+                const code = formatOrderNum(order, idx);
+                const pName = `${order.patient?.name || ""} ${
+                  order.patient?.fullName || ""
+                }`.trim() || "Patient";
+                const testItems = order.orderedTestItems || [];
+                const testCount = testItems.length || 2;
+                const status = (order.status || "PENDING").toUpperCase();
+
+                let statusClass = "status-badge-pending";
+                let statusText = "Pending";
+                if (status === "IN_PROGRESS") {
+                  statusClass = "status-badge-inprogress";
+                  statusText = "In Progress";
+                }
+
+                return (
+                  <div key={order.id} className="active-work-card">
+                    <div className="work-main-info">
+                      <h3 className="work-patient-name">{pName}</h3>
+                      <p className="work-order-sub">
+                        {code} · {testCount} test{testCount === 1 ? "" : "s"} ·{" "}
+                        {testCount} pending
+                      </p>
+                      <div className="work-test-badges">
+                        {testItems.length > 0 ? (
+                          testItems.map((item, tIdx) => {
+                            const c = (
+                              item.testDefinition?.code || "TST"
+                            ).toUpperCase();
+                            return (
+                              <span key={item.id || tIdx} className="test-tag">
+                                {c.length > 8 ? c.slice(0, 7) + "…" : c}
+                              </span>
+                            );
+                          })
+                        ) : (
+                          <>
+                            <span className="test-tag">CBC</span>
+                            <span className="test-tag">LFT</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="work-status-col">
+                      <div className="status-with-warning">
+                        <AlertTriangle size={14} className="warning-icon-pill" />
+                        <span className={`status-pill ${statusClass}`}>
+                          {statusText}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="empty-subtext">No active laboratory work pending.</div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

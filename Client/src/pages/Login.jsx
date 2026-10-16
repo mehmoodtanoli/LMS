@@ -42,17 +42,16 @@ export default function Login() {
   return (
     <div className="login">
       <form className="login-card" onSubmit={submit}>
-        <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Activity className="brand-icon" size={32} color="var(--accent-primary)" />
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>MEDI-LAB</span>
-            <small style={{ fontSize: '0.65em', color: 'var(--text-secondary)' }}>LIMS Workspace</small>
+        <div className="login-brand-header">
+          <div className="brand-icon-box" style={{ width: "44px", height: "44px", borderRadius: "10px", background: "#0e2a47", display: "flex", alignItems: "center", justifyContent: "center", color: "#ffffff", margin: "0 auto 12px" }}>
+            <Activity size={24} color="#ffffff" />
           </div>
+          <h2 style={{ fontSize: "1.35rem", fontWeight: 700, margin: "0 0 4px", color: "var(--text-primary)" }}>City Diagnostics</h2>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", margin: 0 }}>Laboratory Management System</p>
         </div>
 
-        <h1>Sign in</h1>
-
-        <p>Use your laboratory account to continue.</p>
+        <h1 style={{ marginTop: "24px" }}>Sign in</h1>
+        <p>Use your laboratory credentials to access the workspace.</p>
 
         <ErrorMessage error={error} />
 

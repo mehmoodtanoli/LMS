@@ -1,0 +1,13 @@
+{
+  "name": "lms-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Laboratory Management System (LMS)",
+  "scripts": {
+    "dev:server": "npm --prefix Server run dev",
+    "dev:client": "npm --prefix Client run dev",
+    "start:server": "npm --prefix Server start",
+    "build:client": "npm --prefix Client run build",
+    "dev": "npm --prefix Server run dev"
+  }
+}

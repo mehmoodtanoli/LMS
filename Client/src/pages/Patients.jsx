@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-
 import { Link, useNavigate, useParams } from "react-router-dom";
-
 import {
   patientsApi,
   ordersApi,
@@ -9,12 +7,10 @@ import {
   reportsApi,
   resultsApi,
   testsApi,
+  laboratoriesApi,
 } from "../api/resources";
-
 import { apiError } from "../api/client";
-
 import { useAuth } from "../auth/AuthContext";
-
 import {
   Empty,
   ErrorMessage,
@@ -23,6 +19,20 @@ import {
   date,
   patientName,
 } from "../components/Common";
+import {
+  ArrowLeft,
+  UserPlus,
+  Save,
+  User,
+  Phone,
+  CreditCard,
+  MapPin,
+  Calendar,
+  Building2,
+  ChevronDown,
+  Edit,
+  ClipboardList,
+} from "lucide-react";
 
 const blank = {
   name: "",
@@ -36,19 +46,18 @@ const blank = {
 };
 
 export default function Patients() {
-  const [patients, setPatients] = useState([]),
-    [search, setSearch] = useState(""),
-    [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
+  const [patients, setPatients] = useState([]);
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const navigate = useNavigate();
 
   const load = () => {
     setLoading(true);
-
     patientsApi
       .list({ page: 1, limit: 100 })
-      .then((r) => setPatients(r.data.patients))
+      .then((r) => setPatients(r.data.patients || []))
       .catch((e) => setError(apiError(e)))
       .finally(() => setLoading(false));
   };
@@ -58,7 +67,7 @@ export default function Patients() {
   const remove = async (id) => {
     if (
       !window.confirm(
-        "Delete this patient? Related records may prevent deletion.",
+        "Delete this patient? Related records may prevent deletion."
       )
     )
       return;
@@ -74,80 +83,108 @@ export default function Patients() {
   const filtered = patients.filter((p) =>
     `${p.name} ${p.fullName || ""} ${p.cnic} ${p.phone || ""}`
       .toLowerCase()
-      .includes(search.toLowerCase()),
+      .includes(search.toLowerCase())
   );
 
   return (
-    <>
-      <header className="page-header">
+    <div className="patients-page">
+      <header className="page-header-simple">
         <div>
-          <h1>Patients</h1>
-          <p>Register and manage laboratory patients.</p>
+          <h1 className="page-title">Patients</h1>
+          <p className="page-subtitle">
+            Register and manage diagnostic laboratory patients ({filtered.length} total)
+          </p>
         </div>
 
-        <Link className="button" to="/patients/new">
-          New patient
+        <Link className="btn-primary-action" to="/patients/new">
+          <UserPlus size={16} />
+          <span>New Patient</span>
         </Link>
       </header>
 
       <ErrorMessage error={error} />
 
-      <input
-        className="search"
-        placeholder="Search loaded patients by name, CNIC, or phone"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      <div className="orders-toolbar" style={{ marginBottom: "20px" }}>
+        <div className="search-box" style={{ maxWidth: "480px" }}>
+          <input
+            type="text"
+            placeholder="Search patients by name, CNIC, or phone..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
 
       {loading ? (
         <Loading />
       ) : filtered.length ? (
-        <section className="panel">
-          <table>
+        <div className="table-card">
+          <table className="clean-table">
             <thead>
               <tr>
-                <th>Name</th>
+                <th>Patient</th>
                 <th>CNIC</th>
                 <th>Phone</th>
-                <th>Age / gender</th>
-                <th />
+                <th>Age / Gender</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
 
             <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <Link to={`/patients/${p.id}`}>{patientName(p)}</Link>
-                  </td>
+              {filtered.map((p) => {
+                const name = patientName(p);
+                const initials =
+                  name
+                    .split(" ")
+                    .map((w) => w[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase() || "PT";
+                return (
+                  <tr key={p.id}>
+                    <td className="cell-patient">
+                      <div className="patient-avatar-box">
+                        <span className="patient-avatar-circle">{initials}</span>
+                        <div className="patient-info">
+                          <Link to={`/patients/${p.id}`} className="patient-name">
+                            {name}
+                          </Link>
+                        </div>
+                      </div>
+                    </td>
 
-                  <td>{p.cnic}</td>
+                    <td className="cell-cnic">{p.cnic}</td>
 
-                  <td>{p.phone || "—"}</td>
+                    <td className="cell-phone">{p.phone || "—"}</td>
 
-                  <td>
-                    {p.age} / {p.gender}
-                  </td>
+                    <td className="cell-demographics">
+                      {p.age} Y / {p.gender}
+                    </td>
 
-                  <td className="actions">
-                    <Link to={`/patients/${p.id}/edit`}>Edit</Link>
-
-                    <button
-                      className="link danger"
-                      onClick={() => remove(p.id)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    <td style={{ textAlign: "right" }}>
+                      <div style={{ display: "inline-flex", gap: "10px" }}>
+                        <Link to={`/patients/${p.id}/edit`} className="action-text-btn">
+                          Edit
+                        </Link>
+                        <button
+                          type="button"
+                          className="action-text-btn-danger"
+                          onClick={() => remove(p.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </section>
+        </div>
       ) : (
-        <Empty>No matching patients.</Empty>
+        <Empty>No matching patients found.</Empty>
       )}
-    </>
+    </div>
   );
 }
 
@@ -157,10 +194,24 @@ export function PatientForm() {
   const navigate = useNavigate();
 
   const [form, setForm] = useState(blank);
+  const [laboratories, setLaboratories] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(Boolean(id));
 
   useEffect(() => {
+    if (user?.role === "SUPERADMIN") {
+      laboratoriesApi
+        .list({ page: 1, limit: 100 })
+        .then((r) => {
+          const labs = r.data.laboratories || [];
+          setLaboratories(labs);
+          if (labs.length > 0 && !id && !form.laboratoryId) {
+            setForm((prev) => ({ ...prev, laboratoryId: labs[0].id }));
+          }
+        })
+        .catch(() => {});
+    }
+
     if (id) {
       patientsApi
         .get(id)
@@ -169,12 +220,12 @@ export function PatientForm() {
             ...blank,
             ...r.data.patient,
             age: String(r.data.patient.age),
-          }),
+          })
         )
         .catch((e) => setError(apiError(e)))
         .finally(() => setBusy(false));
     }
-  }, [id]);
+  }, [id, user]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -197,13 +248,13 @@ export function PatientForm() {
     }
 
     if (!/^\d{13}$/.test(cnic)) {
-      setError("CNIC must contain exactly 13 digits.");
+      setError("CNIC must contain exactly 13 digits (e.g. 3520112345671).");
       return;
     }
 
     if (!/^03\d{9}$/.test(phone)) {
       setError(
-        "Phone number must be a valid Pakistani mobile number, e.g. 03001234567.",
+        "Phone number must be a valid Pakistani mobile number, e.g. 03001234567."
       );
       return;
     }
@@ -247,163 +298,205 @@ export function PatientForm() {
     }
   };
 
-  if (busy && id) return <Loading />;
+  if (busy && id) return <Loading text="Loading patient details…" />;
 
   return (
-    <>
-      <header className="page-header">
+    <div className="patient-form-page">
+      {/* Header with Back Link */}
+      <div className="form-page-top">
+        <Link to="/patients" className="back-nav-link">
+          <ArrowLeft size={16} />
+          <span>Back to Patients</span>
+        </Link>
+      </div>
+
+      <header className="page-header-simple">
         <div>
-          <h1>{id ? "Edit patient" : "New patient"}</h1>
+          <h1 className="page-title">{id ? "Edit Patient" : "New Patient Registration"}</h1>
+          <p className="page-subtitle">
+            Enter patient demographics, CNIC, and contact details for diagnostic records
+          </p>
         </div>
       </header>
 
-      <form className="panel form-grid" onSubmit={submit}>
-        <ErrorMessage error={error} />
+      <ErrorMessage error={error} />
 
-        <label>
-          First name
-          <input
-            required
-            value={form.name}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                name: e.target.value,
-              })
-            }
-          />
-        </label>
+      {/* Styled Card Container */}
+      <div className="patient-form-card">
+        <form onSubmit={submit} className="patient-styled-form">
+          {/* Row 1: First Name & Last Name */}
+          <div className="form-row-2col">
+            <div className="form-group-clean">
+              <label>
+                First Name <span className="required-star">*</span>
+              </label>
+              <input
+                required
+                placeholder="e.g. Muhammad"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </div>
 
-        <label>
-          Last name
-          <input
-            required
-            value={form.fullName}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                fullName: e.target.value,
-              })
-            }
-          />
-        </label>
+            <div className="form-group-clean">
+              <label>
+                Last Name <span className="required-star">*</span>
+              </label>
+              <input
+                required
+                placeholder="e.g. Ali Khan"
+                value={form.fullName}
+                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+              />
+            </div>
+          </div>
 
-        <label>
-          Age
-          <input
-            required
-            type="number"
-            min="1"
-            max="120"
-            step="1"
-            value={form.age}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                age: e.target.value,
-              })
-            }
-          />
-        </label>
+          {/* Row 2: Age & Gender */}
+          <div className="form-row-2col">
+            <div className="form-group-clean">
+              <label>
+                Age (Years) <span className="required-star">*</span>
+              </label>
+              <input
+                required
+                type="number"
+                min="1"
+                max="120"
+                step="1"
+                placeholder="e.g. 32"
+                value={form.age}
+                onChange={(e) => setForm({ ...form, age: e.target.value })}
+              />
+            </div>
 
-        <label>
-          Gender
-          <select
-            required
-            value={form.gender}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                gender: e.target.value,
-              })
-            }
-          >
-            <option value="MALE">Male</option>
-            <option value="FEMALE">Female</option>
-            <option value="OTHER">Other</option>
-          </select>
-        </label>
+            <div className="form-group-clean">
+              <label>
+                Gender <span className="required-star">*</span>
+              </label>
+              <div className="select-wrapper">
+                <select
+                  required
+                  value={form.gender}
+                  onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                >
+                  <option value="MALE">Male</option>
+                  <option value="FEMALE">Female</option>
+                  <option value="OTHER">Other</option>
+                </select>
+                <ChevronDown size={16} className="select-arrow" />
+              </div>
+            </div>
+          </div>
 
-        <label>
-          CNIC
-          <input
-            required
-            inputMode="numeric"
-            maxLength="13"
-            pattern="[0-9]{13}"
-            placeholder="13 digits"
-            value={form.cnic}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                cnic: e.target.value.replace(/\D/g, "").slice(0, 13),
-              })
-            }
-          />
-        </label>
+          {/* Row 3: CNIC & Phone */}
+          <div className="form-row-2col">
+            <div className="form-group-clean">
+              <label>
+                CNIC Number (13 digits) <span className="required-star">*</span>
+              </label>
+              <input
+                required
+                inputMode="numeric"
+                maxLength="13"
+                pattern="[0-9]{13}"
+                placeholder="e.g. 3520112345671"
+                value={form.cnic}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    cnic: e.target.value.replace(/\D/g, "").slice(0, 13),
+                  })
+                }
+              />
+              <span className="field-hint">13 digits without hyphens</span>
+            </div>
 
-        <label>
-          Phone
-          <input
-            required
-            type="tel"
-            inputMode="numeric"
-            maxLength="11"
-            pattern="03[0-9]{9}"
-            placeholder="03001234567"
-            value={form.phone}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                phone: e.target.value.replace(/\D/g, "").slice(0, 11),
-              })
-            }
-          />
-        </label>
+            <div className="form-group-clean">
+              <label>
+                Mobile Phone <span className="required-star">*</span>
+              </label>
+              <input
+                required
+                type="tel"
+                inputMode="numeric"
+                maxLength="11"
+                pattern="03[0-9]{9}"
+                placeholder="03001234567"
+                value={form.phone}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    phone: e.target.value.replace(/\D/g, "").slice(0, 11),
+                  })
+                }
+              />
+              <span className="field-hint">Pakistani format: 03001234567</span>
+            </div>
+          </div>
 
-        {user.role === "SUPERADMIN" && !id && (
-          <label>
-            Laboratory ID
-            <input
-              required
-              value={form.laboratoryId}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  laboratoryId: e.target.value,
-                })
-              }
+          {/* Superadmin Laboratory Select */}
+          {user?.role === "SUPERADMIN" && !id && (
+            <div className="form-group-clean">
+              <label>
+                Assigned Laboratory <span className="required-star">*</span>
+              </label>
+              <div className="select-wrapper">
+                <select
+                  required
+                  value={form.laboratoryId}
+                  onChange={(e) =>
+                    setForm({ ...form, laboratoryId: e.target.value })
+                  }
+                >
+                  <option value="">Select laboratory...</option>
+                  {laboratories.map((lab) => (
+                    <option key={lab.id} value={lab.id}>
+                      {lab.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="select-arrow" />
+              </div>
+            </div>
+          )}
+
+          {/* Address */}
+          <div className="form-group-clean">
+            <label>Residential Address</label>
+            <textarea
+              rows={3}
+              placeholder="e.g. House # 12, Street 4, Gulberg III, Lahore"
+              value={form.address || ""}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
-          </label>
-        )}
+          </div>
 
-        <label className="full">
-          Address
-          <textarea
-            value={form.address}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                address: e.target.value,
-              })
-            }
-          />
-        </label>
-
-        <div className="full">
-          <button disabled={busy}>{busy ? "Saving…" : "Save patient"}</button>
-        </div>
-      </form>
-    </>
+          {/* Form Actions */}
+          <div className="form-actions-clean">
+            <Link to="/patients" className="btn-cancel">
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              className="btn-primary-action"
+              disabled={busy}
+            >
+              <Save size={16} />
+              <span>{busy ? "Saving…" : id ? "Update Patient" : "Save Patient"}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
 export function PatientDetail() {
   const { id } = useParams();
 
-  const [patient, setPatient] = useState(null),
-    [related, setRelated] = useState(null),
-    [error, setError] = useState("");
+  const [patient, setPatient] = useState(null);
+  const [related, setRelated] = useState(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -415,95 +508,143 @@ export function PatientDetail() {
       testsApi.list({ page: 1, limit: 1 }),
     ])
       .then(([p, o, r, rep, pay]) => {
-        const orders = o.data.orders.filter((x) => x.patientId === id);
-
+        const orders = (o.data.orders || []).filter((x) => x.patientId === id);
         const orderIds = new Set(orders.map((x) => x.id));
 
         setPatient(p.data.patient);
 
         setRelated({
           orders,
-          results: r.data.results.filter((x) =>
-            orderIds.has(x.orderedTestItem.order.id),
+          results: (r.data.results || []).filter((x) =>
+            orderIds.has(x.orderedTestItem?.order?.id)
           ),
-          reports: rep.data.reports.filter((x) => orderIds.has(x.orderId)),
-          payments: pay.data.payments.filter((x) => orderIds.has(x.orderId)),
+          reports: (rep.data.reports || []).filter((x) => orderIds.has(x.orderId)),
+          payments: (pay.data.payments || []).filter((x) => orderIds.has(x.orderId)),
         });
       })
       .catch((e) => setError(apiError(e)));
   }, [id]);
 
   if (error) return <ErrorMessage error={error} />;
+  if (!patient || !related) return <Loading text="Loading patient record…" />;
 
-  if (!patient || !related) return <Loading />;
+  const pName = patientName(patient);
+  const initials =
+    pName
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "PT";
 
   return (
-    <>
-      <header className="page-header">
-        <div>
-          <h1>{patientName(patient)}</h1>
-          <p>
-            {patient.cnic} · {patient.age} · {patient.gender}
-          </p>
+    <div className="patient-detail-page">
+      <div className="form-page-top">
+        <Link to="/patients" className="back-nav-link">
+          <ArrowLeft size={16} />
+          <span>Back to Patients</span>
+        </Link>
+      </div>
+
+      <header className="page-header-simple">
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <span className="patient-avatar-circle-lg">{initials}</span>
+          <div>
+            <h1 className="page-title">{pName}</h1>
+            <p className="page-subtitle">
+              CNIC: {patient.cnic} · {patient.age} Years · {patient.gender}
+            </p>
+          </div>
         </div>
 
-        <Link className="button secondary" to="edit">
-          Edit patient
+        <Link className="btn-primary-action" to="edit">
+          <Edit size={16} />
+          <span>Edit Patient</span>
         </Link>
       </header>
 
-      <section className="details">
-        <div>
-          <b>Phone</b>
-          {patient.phone || "—"}
+      {/* Info Cards Grid */}
+      <div className="patient-info-summary-grid">
+        <div className="summary-card-clean">
+          <Phone size={18} className="summary-card-icon" />
+          <div>
+            <span className="summary-card-lbl">Phone Number</span>
+            <span className="summary-card-val">{patient.phone || "—"}</span>
+          </div>
         </div>
 
-        <div>
-          <b>Address</b>
-          {patient.address || "—"}
+        <div className="summary-card-clean">
+          <MapPin size={18} className="summary-card-icon" />
+          <div>
+            <span className="summary-card-lbl">Address</span>
+            <span className="summary-card-val">{patient.address || "—"}</span>
+          </div>
         </div>
-      </section>
 
-      <section className="panel">
-        <h2>Related workflow</h2>
+        <div className="summary-card-clean">
+          <Calendar size={18} className="summary-card-icon" />
+          <div>
+            <span className="summary-card-lbl">Registered On</span>
+            <span className="summary-card-val">{date(patient.createdAt)}</span>
+          </div>
+        </div>
+      </div>
 
-        <p>
-          {related.orders.length} orders · {related.results.length} results ·{" "}
-          {related.reports.length} reports · {related.payments.length} payments
-        </p>
+      {/* Related Workflow Section */}
+      <div className="dashboard-panel" style={{ marginTop: "24px" }}>
+        <div className="panel-top-bar">
+          <div>
+            <h2 className="panel-heading">Patient Orders & Work History</h2>
+            <p className="page-subtitle" style={{ fontSize: "0.8rem", marginTop: "2px" }}>
+              {related.orders.length} order{related.orders.length === 1 ? "" : "s"} ·{" "}
+              {related.results.length} result{related.results.length === 1 ? "" : "s"} ·{" "}
+              {related.reports.length} report{related.reports.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <Link to="/orders" className="panel-action-link">
+            <span>+ Create Order</span>
+          </Link>
+        </div>
 
         {related.orders.length ? (
-          <table>
+          <table className="clean-table">
             <thead>
               <tr>
-                <th>Test</th>
+                <th>Test Ordered</th>
                 <th>Status</th>
                 <th>Created</th>
               </tr>
             </thead>
-
             <tbody>
               {related.orders.map((o) => (
                 <tr key={o.id}>
-                  <td>
-                    {o.orderedTestItems
-                      .map((item) => item.testDefinition.name)
-                      .join(", ")}
+                  <td className="cell-param-name">
+                    {(o.orderedTestItems || [])
+                      .map((item) => item.testDefinition?.name || item.testDefinition?.code)
+                      .join(", ") || "Diagnostic Panel"}
                   </td>
-
                   <td>
-                    <Status value={o.status} />
+                    <span
+                      className={`status-pill ${
+                        o.status === "COMPLETED"
+                          ? "status-badge-finalized"
+                          : o.status === "IN_PROGRESS"
+                          ? "status-badge-inprogress"
+                          : "status-badge-pending"
+                      }`}
+                    >
+                      {o.status}
+                    </span>
                   </td>
-
-                  <td>{date(o.createdAt)}</td>
+                  <td className="cell-created">{date(o.createdAt)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <Empty>No orders for this patient.</Empty>
+          <div className="empty-subtext">No orders recorded for this patient yet.</div>
         )}
-      </section>
-    </>
+      </div>
+    </div>
   );
 }
