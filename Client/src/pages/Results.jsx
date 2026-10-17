@@ -45,6 +45,17 @@ const DEFAULT_PARAMETERS = {
     { name: "Chloride (Cl-)", unit: "mEq/L", referenceRange: "98 - 107" },
     { name: "Estimated GFR (eGFR)", unit: "mL/min/1.73m²", referenceRange: "> 90" },
   ],
+  PT: [
+    { name: "Patient Value", unit: "Seconds", referenceRange: "11.0 - 15.0" },
+    { name: "Control Value", unit: "Seconds", referenceRange: "12.0 - 14.0" },
+    { name: "I.N.R", unit: "Ratio", referenceRange: "0.8 - 1.2" },
+    { name: "Prothrombin Activity / Index", unit: "%", referenceRange: "70 - 100" },
+  ],
+  APTT: [
+    { name: "Patient Value", unit: "Seconds", referenceRange: "26.0 - 38.0" },
+    { name: "Control Value", unit: "Seconds", referenceRange: "28.0 - 32.0" },
+    { name: "Ratio", unit: "Ratio", referenceRange: "0.8 - 1.2" },
+  ],
 };
 
 function getInitials(name) {
@@ -152,9 +163,12 @@ export default function Results() {
 
     // Fallback to default realistic clinical templates based on test code
     const code = (activeItem.testDefinition?.code || "").toUpperCase();
-    if (code.includes("CBC")) return DEFAULT_PARAMETERS.CBC;
-    if (code.includes("LFT")) return DEFAULT_PARAMETERS.LFT;
-    if (code.includes("RFT")) return DEFAULT_PARAMETERS.RFT;
+    const name = (activeItem.testDefinition?.name || "").toUpperCase();
+    if (code.includes("PT") || code.includes("INR") || name.includes("PROTHROMBIN")) return DEFAULT_PARAMETERS.PT;
+    if (code.includes("APTT") || name.includes("THROMBOPLASTIN")) return DEFAULT_PARAMETERS.APTT;
+    if (code.includes("CBC") || name.includes("BLOOD") || name.includes("HEMO")) return DEFAULT_PARAMETERS.CBC;
+    if (code.includes("LFT") || name.includes("LIVER")) return DEFAULT_PARAMETERS.LFT;
+    if (code.includes("RFT") || name.includes("RENAL") || name.includes("KIDNEY")) return DEFAULT_PARAMETERS.RFT;
 
     return DEFAULT_PARAMETERS.CBC;
   }, [activeItem]);

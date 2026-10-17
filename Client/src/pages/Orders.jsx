@@ -26,6 +26,9 @@ const TEST_PRICES = {
   CRP: 900,
   FERRITIN: 1400,
   "BETA-HCG": 1600,
+  PT: 700,
+  APTT: 800,
+  INR: 700,
 };
 
 function getTestPrice(test) {
@@ -39,6 +42,8 @@ function getTestPrice(test) {
 function getTestCategory(test) {
   const code = (test?.code || "").toUpperCase();
   const name = (test?.name || "").toLowerCase();
+  if (code.includes("PT") || code.includes("APTT") || code.includes("INR") || name.includes("prothrombin") || name.includes("coagulation"))
+    return "Coagulation & Hematology";
   if (code.includes("CBC") || name.includes("blood") || name.includes("hematology"))
     return "Hematology";
   if (code.includes("LFT") || code.includes("RFT") || code.includes("LIPID") || name.includes("glucose"))

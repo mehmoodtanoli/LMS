@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { XpertLabLogo } from "../components/XpertLogo";
 import {
   FlaskConical,
   LayoutDashboard,
@@ -50,12 +51,12 @@ export default function AppShell() {
       <aside className="sidebar">
         {/* Brand Header */}
         <div className="brand">
-          <div className="brand-icon-box">
-            <FlaskConical size={20} className="brand-icon" />
+          <div className="brand-icon-box" style={{ background: "#0e2c4d", border: "1px solid rgba(56, 189, 248, 0.25)" }}>
+            <XpertLabLogo size={24} color="#38bdf8" />
           </div>
           <div className="brand-text">
-            <span className="brand-title">City Diagnostics</span>
-            <span className="brand-subtitle">Laboratory Management</span>
+            <span className="brand-title">Xpert Clinical Laboratory</span>
+            <span className="brand-subtitle">Accurate · Caring · Instant</span>
           </div>
         </div>
 
@@ -93,8 +94,8 @@ export default function AppShell() {
         {/* Sidebar Footer */}
         <div className="sidebar-footer">
           <div className="sidebar-address">
-            <p>64-G, Gulberg III, Lahore, Pakistan</p>
-            <p>+92 42 3555 1234</p>
+            <p>Al Haider Plaza Opp: INOR Gate, Mansehra Road Abbottabad</p>
+            <p>Contact: 0992634625 · xpertlab70@gmail.com</p>
           </div>
 
           <div className="sidebar-user">

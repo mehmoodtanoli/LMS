@@ -242,7 +242,7 @@ export function UserForm() {
             <input
               required
               type="email"
-              placeholder="e.g. user@citydiagnostics.test"
+              placeholder="e.g. user@xpertlab.com"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />

@@ -465,7 +465,7 @@ export function PatientForm() {
             <label>Residential Address</label>
             <textarea
               rows={3}
-              placeholder="e.g. House # 12, Street 4, Gulberg III, Lahore"
+              placeholder="e.g. Al Haider Plaza, Mansehra Road, Abbottabad"
               value={form.address || ""}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />

@@ -234,7 +234,7 @@ export function LaboratoryForm() {
             </label>
             <input
               required
-              placeholder="e.g. City Diagnostics Main Campus"
+              placeholder="e.g. Xpert Clinical Laboratory - Abbottabad"
               value={form.name}
               onChange={(e) => setForm({ name: e.target.value })}
             />
