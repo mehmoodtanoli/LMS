@@ -4,7 +4,6 @@ dotenv.config();
 
 const REQUIRED_ENV_VARS = [
   "NODE_ENV",
-  "PORT",
   "DATABASE_URL",
   "JWT_SECRET",
   "JWT_EXPIRES_IN",
@@ -19,18 +18,18 @@ function validateRequiredVars() {
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variable(s): ${missing.join(", ")}. ` +
-        "Please check your .env file against .env.example.",
+        "Please check your .env file against .env.example."
     );
   }
 }
 
 function validatePort() {
-  const rawPort = process.env.PORT;
+  const rawPort = process.env.PORT || 5000;
   const port = Number(rawPort);
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(
-      "Invalid environment variable: PORT must be an integer between 1 and 65535.",
+      "Invalid environment variable: PORT must be an integer between 1 and 65535."
     );
   }
 

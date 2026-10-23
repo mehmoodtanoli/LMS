@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ordersApi, patientsApi, testsApi } from "../api/resources";
 import { apiError } from "../api/client";
-import { Loading, ErrorMessage, Empty } from "../components/Common";
+import { Loading, ErrorMessage, Empty, patientName } from "../components/Common";
 import {
   Plus,
   Search,
@@ -32,6 +32,9 @@ const TEST_PRICES = {
 };
 
 function getTestPrice(test) {
+  if (test?.price !== undefined && test?.price !== null && Number(test.price) > 0) {
+    return Number(test.price);
+  }
   const code = (test?.code || "").toUpperCase();
   for (const [key, price] of Object.entries(TEST_PRICES)) {
     if (code.includes(key)) return price;
@@ -81,9 +84,13 @@ function getOrderAmount(order) {
   const items = order.orderedTestItems || [];
   let total = 0;
   for (const item of items) {
-    total += getTestPrice(item.testDefinition);
+    if (item.price !== undefined && item.price !== null) {
+      total += Number(item.price);
+    } else {
+      total += getTestPrice(item.testDefinition);
+    }
   }
-  return total > 0 ? total : 1200;
+  return total;
 }
 
 function getInitials(name) {
@@ -167,7 +174,7 @@ export default function Orders() {
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       const code = formatOrderCode(order, idx).toLowerCase();
-      const patientName = `${order.patient?.name || ""} ${order.patient?.fullName || ""}`.toLowerCase();
+      const pName = patientName(order.patient).toLowerCase();
       const cnic = (order.patient?.cnic || "").toLowerCase();
       const doctor = getDoctorName(order, idx).toLowerCase();
       const testCodes = (order.orderedTestItems || [])
@@ -344,10 +351,8 @@ export default function Orders() {
               {filteredOrders.map((order, idx) => {
                 const orderCode = formatOrderCode(order, idx);
                 const patient = order.patient;
-                const pName = `${patient?.name || ""} ${
-                  patient?.fullName || ""
-                }`.trim() || "Patient";
-                const cnic = patient?.cnic || "35201-1234567-1";
+                const pName = patientName(patient);
+                const cnic = patient?.cnic || "—";
                 const initials = getInitials(pName);
                 const doctor = getDoctorName(order, idx);
                 const testItems = order.orderedTestItems || [];

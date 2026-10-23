@@ -1,9 +1,12 @@
 import prisma from "../config/prisma.js";
-
 import ApiError from "../utils/ApiError.js";
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import {
+  assertUuid,
+  parsePagination,
+  normalizeString,
+  normalizeOptionalString,
+} from "../utils/validators.js";
+import { recordAuditLog } from "../utils/audit.js";
 
 const VALID_RESULT_STATUSES = [
   "PENDING",
@@ -11,10 +14,6 @@ const VALID_RESULT_STATUSES = [
   "COMPLETED",
   "FINALIZED",
 ];
-
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
 
 const RESULT_SELECT = {
   id: true,
@@ -25,12 +24,15 @@ const RESULT_SELECT = {
   referenceRange: true,
   interpretation: true,
   notes: true,
+  finalizedAt: true,
+  finalizedById: true,
   createdAt: true,
   updatedAt: true,
 
   orderedTestItem: {
     select: {
       id: true,
+      price: true,
       notes: true,
 
       order: {
@@ -45,6 +47,11 @@ const RESULT_SELECT = {
               name: true,
               fullName: true,
               cnic: true,
+              phone: true,
+              age: true,
+              ageUnit: true,
+              gender: true,
+              address: true,
               laboratoryId: true,
             },
           },
@@ -56,6 +63,7 @@ const RESULT_SELECT = {
           id: true,
           code: true,
           name: true,
+          price: true,
           laboratoryId: true,
 
           parameters: {
@@ -76,33 +84,16 @@ const RESULT_SELECT = {
   },
 };
 
-function normalizeString(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeOptionalString(value) {
-  const normalizedValue = normalizeString(value);
-  return normalizedValue ? normalizedValue : undefined;
-}
-
-function assertUuid(value, fieldName) {
-  if (!UUID_PATTERN.test(value)) {
-    throw new ApiError(400, `${fieldName} must be a valid UUID.`, {
-      field: fieldName,
-    });
-  }
-}
-
 function assertLabAdminScope(user) {
   if (user.role === "SUPERADMIN") {
     return null;
   }
 
-  if (user.role === "LAB_ADMIN") {
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
     if (!user.laboratoryId) {
       throw new ApiError(
         403,
-        "LAB_ADMIN users must be assigned to a laboratory before managing results.",
+        "User must be assigned to a laboratory before managing results."
       );
     }
 
@@ -126,31 +117,6 @@ function buildListWhere(user) {
   }
 
   return {};
-}
-
-function parsePagination(query) {
-  const pageValue = query?.page ?? DEFAULT_PAGE;
-  const limitValue = query?.limit ?? DEFAULT_LIMIT;
-
-  const page = Number(pageValue);
-  const limit = Number(limitValue);
-
-  if (!Number.isInteger(page) || page < 1) {
-    throw new ApiError(400, "page must be a positive integer.", {
-      field: "page",
-    });
-  }
-
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw new ApiError(400, "limit must be a positive integer.", {
-      field: "limit",
-    });
-  }
-
-  return {
-    page,
-    limit: Math.min(limit, MAX_LIMIT),
-  };
 }
 
 function normalizeResultStatus(value) {
@@ -183,66 +149,22 @@ function buildResultData(data) {
 
   if (data.unit !== undefined) {
     const unit = normalizeOptionalString(data.unit);
-
-    if (data.unit !== null && data.unit !== undefined && !unit) {
-      throw new ApiError(400, "unit cannot be empty if provided.", {
-        field: "unit",
-      });
-    }
-
-    if (unit !== undefined) {
-      resultData.unit = unit;
-    }
+    resultData.unit = unit ?? null;
   }
 
   if (data.referenceRange !== undefined) {
     const referenceRange = normalizeOptionalString(data.referenceRange);
-
-    if (
-      data.referenceRange !== null &&
-      data.referenceRange !== undefined &&
-      !referenceRange
-    ) {
-      throw new ApiError(400, "referenceRange cannot be empty if provided.", {
-        field: "referenceRange",
-      });
-    }
-
-    if (referenceRange !== undefined) {
-      resultData.referenceRange = referenceRange;
-    }
+    resultData.referenceRange = referenceRange ?? null;
   }
 
   if (data.interpretation !== undefined) {
     const interpretation = normalizeOptionalString(data.interpretation);
-
-    if (
-      data.interpretation !== null &&
-      data.interpretation !== undefined &&
-      !interpretation
-    ) {
-      throw new ApiError(400, "interpretation cannot be empty if provided.", {
-        field: "interpretation",
-      });
-    }
-
-    if (interpretation !== undefined) {
-      resultData.interpretation = interpretation;
-    }
+    resultData.interpretation = interpretation ?? null;
   }
 
   if (data.notes !== undefined) {
     const notes = normalizeOptionalString(data.notes);
-
-    if (data.notes !== null && data.notes !== undefined && !notes) {
-      throw new ApiError(400, "notes cannot be empty if provided.", {
-        field: "notes",
-      });
-    }
-
-    if (notes !== undefined) {
-      resultData.notes = notes;
-    }
+    resultData.notes = notes ?? null;
   }
 
   return resultData;
@@ -255,7 +177,7 @@ function handlePrismaError(error) {
       "A result already exists for this ordered test item.",
       {
         fields: error.meta?.target ?? null,
-      },
+      }
     );
   }
 
@@ -285,6 +207,7 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
 
     select: {
       id: true,
+      price: true,
 
       result: {
         select: {
@@ -304,6 +227,11 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
               name: true,
               fullName: true,
               cnic: true,
+              phone: true,
+              age: true,
+              ageUnit: true,
+              gender: true,
+              address: true,
               laboratoryId: true,
             },
           },
@@ -315,6 +243,7 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
           id: true,
           code: true,
           name: true,
+          price: true,
           laboratoryId: true,
 
           parameters: {
@@ -358,29 +287,78 @@ async function createResult({ user, data }) {
   if (orderedTestItem.result) {
     throw new ApiError(
       409,
-      "A result already exists for this ordered test item.",
+      "A result already exists for this ordered test item."
     );
   }
 
   const resultData = buildResultData(data);
 
+  if (resultData.status === "FINALIZED") {
+    if (!resultData.value || Object.keys(resultData.value).length === 0) {
+      throw new ApiError(400, "Cannot finalize result without entering observation values.");
+    }
+    resultData.finalizedAt = new Date();
+    resultData.finalizedById = user.id;
+  }
+
   try {
-    return await prisma.result.create({
+    const result = await prisma.result.create({
       data: {
         orderedTestItemId,
         ...resultData,
       },
       select: RESULT_SELECT,
     });
+
+    await recordAuditLog({
+      laboratoryId: orderedTestItem.order.laboratoryId,
+      userId: user.id,
+      action: "RESULT_CREATED",
+      entity: "Result",
+      entityId: result.id,
+      details: { status: result.status },
+    });
+
+    return result;
   } catch (error) {
     handlePrismaError(error);
   }
 }
 
 async function listResults({ user, query }) {
-  const where = buildListWhere(user);
+  const accessibleWhere = buildListWhere(user);
   const { page, limit } = parsePagination(query);
   const skip = (page - 1) * limit;
+
+  const where = { ...accessibleWhere };
+
+  if (query?.status) {
+    where.status = normalizeResultStatus(query.status);
+  }
+
+  if (query?.orderId) {
+    assertUuid(query.orderId, "orderId");
+    where.orderedTestItem = {
+      ...where.orderedTestItem,
+      orderId: query.orderId,
+    };
+  }
+
+  if (query?.search) {
+    const s = query.search.trim();
+    where.orderedTestItem = {
+      ...where.orderedTestItem,
+      order: {
+        patient: {
+          OR: [
+            { name: { contains: s, mode: "insensitive" } },
+            { fullName: { contains: s, mode: "insensitive" } },
+            { cnic: { contains: s } },
+          ],
+        },
+      },
+    };
+  }
 
   const [results, total] = await prisma.$transaction([
     prisma.result.findMany({
@@ -400,7 +378,6 @@ async function listResults({ user, query }) {
 
   return {
     results,
-
     meta: {
       page,
       limit,
@@ -441,6 +418,17 @@ async function updateResult({ user, resultId, data }) {
     select: {
       id: true,
       status: true,
+      value: true,
+      notes: true,
+      orderedTestItem: {
+        select: {
+          order: {
+            select: {
+              laboratoryId: true,
+            },
+          },
+        },
+      },
     },
   });
 
@@ -448,21 +436,65 @@ async function updateResult({ user, resultId, data }) {
     throw new ApiError(404, "Result not found.");
   }
 
-  if (existingResult.status === "FINALIZED") {
-    throw new ApiError(409, "This result is finalized and cannot be modified.");
+  // Amend Flow for Finalized Results (Fixes A6)
+  const isCurrentlyFinalized = existingResult.status === "FINALIZED";
+  if (isCurrentlyFinalized) {
+    if (!data.isAmendment) {
+      throw new ApiError(
+        409,
+        "This result is finalized and cannot be modified. To amend this result, provide isAmendment: true and an amendmentReason."
+      );
+    }
+
+    const reason = normalizeString(data.amendmentReason);
+    if (!reason) {
+      throw new ApiError(400, "amendmentReason is required when amending a finalized result.", {
+        field: "amendmentReason",
+      });
+    }
   }
 
   const resultData = buildResultData(data);
 
+  // Require values to finalize (Fixes A6: "Finalize allowed with every value empty")
+  const targetStatus = resultData.status || existingResult.status;
+  if (targetStatus === "FINALIZED") {
+    const effectiveValue = resultData.value !== undefined ? resultData.value : existingResult.value;
+    const hasValues =
+      effectiveValue !== null &&
+      effectiveValue !== undefined &&
+      (typeof effectiveValue === "object"
+        ? Object.keys(effectiveValue).length > 0 &&
+          Object.values(effectiveValue).some((v) => v !== "" && v !== null && v !== undefined)
+        : String(effectiveValue).trim().length > 0);
+
+    if (!hasValues) {
+      throw new ApiError(400, "Result cannot be finalized with empty observation values.");
+    }
+
+    resultData.finalizedAt = new Date();
+    resultData.finalizedById = user.id;
+  }
+
+  // If this was an amendment, record amendment metadata in notes and audit log
+  if (isCurrentlyFinalized && data.isAmendment) {
+    const auditStamp = `[Amended on ${new Date().toISOString()} by user ${user.email || user.id}: ${data.amendmentReason}]`;
+    resultData.notes = existingResult.notes
+      ? `${existingResult.notes}\n${auditStamp}`
+      : auditStamp;
+    resultData.finalizedAt = new Date();
+    resultData.finalizedById = user.id;
+  }
+
   if (Object.keys(resultData).length === 0) {
     throw new ApiError(
       400,
-      "At least one editable result field must be provided.",
+      "At least one editable result field must be provided."
     );
   }
 
   try {
-    return await prisma.result.update({
+    const updated = await prisma.result.update({
       where: {
         id: resultId,
       },
@@ -471,6 +503,21 @@ async function updateResult({ user, resultId, data }) {
 
       select: RESULT_SELECT,
     });
+
+    await recordAuditLog({
+      laboratoryId: existingResult.orderedTestItem.order.laboratoryId,
+      userId: user.id,
+      action: isCurrentlyFinalized ? "RESULT_AMENDED" : "RESULT_UPDATED",
+      entity: "Result",
+      entityId: resultId,
+      details: {
+        status: updated.status,
+        isAmendment: Boolean(data.isAmendment),
+        reason: data.amendmentReason || null,
+      },
+    });
+
+    return updated;
   } catch (error) {
     handlePrismaError(error);
   }

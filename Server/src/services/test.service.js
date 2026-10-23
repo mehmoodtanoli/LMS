@@ -1,41 +1,23 @@
 import prisma from "../config/prisma.js";
-
 import ApiError from "../utils/ApiError.js";
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
-
-function normalizeString(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeOptionalString(value) {
-  const normalizedValue = normalizeString(value);
-  return normalizedValue ? normalizedValue : undefined;
-}
-
-function assertUuid(value, fieldName) {
-  if (!UUID_PATTERN.test(value)) {
-    throw new ApiError(400, `${fieldName} must be a valid UUID.`, {
-      field: fieldName,
-    });
-  }
-}
+import {
+  assertUuid,
+  parsePagination,
+  normalizeString,
+  normalizeOptionalString,
+} from "../utils/validators.js";
+import { recordAuditLog } from "../utils/audit.js";
 
 function assertLaboratoryScope(user) {
   if (user.role === "SUPERADMIN") {
     return null;
   }
 
-  if (user.role === "LAB_ADMIN") {
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
     if (!user.laboratoryId) {
       throw new ApiError(
         403,
-        "LAB_ADMIN users must be assigned to a laboratory before accessing tests.",
+        "User must be assigned to a laboratory before accessing tests."
       );
     }
 
@@ -45,37 +27,28 @@ function assertLaboratoryScope(user) {
   throw new ApiError(403, "You are not authorized to access test definitions.");
 }
 
-function assertSuperAdmin(user) {
-  if (user.role !== "SUPERADMIN") {
-    throw new ApiError(
-      403,
-      "Only SUPERADMIN users can manage test definitions.",
-    );
-  }
-}
-
-function parsePagination(query) {
-  const pageValue = query?.page ?? DEFAULT_PAGE;
-  const limitValue = query?.limit ?? DEFAULT_LIMIT;
-  const page = Number(pageValue);
-  const limit = Number(limitValue);
-
-  if (!Number.isInteger(page) || page < 1) {
-    throw new ApiError(400, "page must be a positive integer.", {
-      field: "page",
-    });
+function assertCanManageTest(user, testDefinition = null) {
+  if (user.role === "SUPERADMIN") {
+    return;
   }
 
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw new ApiError(400, "limit must be a positive integer.", {
-      field: "limit",
-    });
+  if (user.role === "LAB_ADMIN") {
+    if (!user.laboratoryId) {
+      throw new ApiError(
+        403,
+        "LAB_ADMIN users must be assigned to a laboratory before managing tests."
+      );
+    }
+    if (testDefinition && testDefinition.laboratoryId !== user.laboratoryId) {
+      throw new ApiError(
+        403,
+        "LAB_ADMIN can only modify or delete tests belonging to their own laboratory."
+      );
+    }
+    return;
   }
 
-  return {
-    page,
-    limit: Math.min(limit, MAX_LIMIT),
-  };
+  throw new ApiError(403, "You are not authorized to manage test definitions.");
 }
 
 function buildTestData(data) {
@@ -88,7 +61,7 @@ function buildTestData(data) {
       throw new ApiError(400, "code is required.", { field: "code" });
     }
 
-    testData.code = code;
+    testData.code = code.toUpperCase();
   }
 
   if (data.name !== undefined) {
@@ -103,18 +76,22 @@ function buildTestData(data) {
 
   if (data.description !== undefined) {
     const description = normalizeOptionalString(data.description);
-
-    if (
-      data.description !== null &&
-      data.description !== undefined &&
-      !description
-    ) {
-      throw new ApiError(400, "description cannot be empty if provided.", {
-        field: "description",
-      });
-    }
-
     testData.description = description ?? null;
+  }
+
+  // Accept and validate test price (Fixes A1)
+  if (data.price !== undefined) {
+    if (data.price === null || data.price === "") {
+      testData.price = 0;
+    } else {
+      const numericPrice = Number(data.price);
+      if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+        throw new ApiError(400, "price must be a non-negative number.", {
+          field: "price",
+        });
+      }
+      testData.price = numericPrice;
+    }
   }
 
   return testData;
@@ -127,12 +104,6 @@ function buildParameterData(parameters) {
 
   if (!Array.isArray(parameters)) {
     throw new ApiError(400, "parameters must be an array.", {
-      field: "parameters",
-    });
-  }
-
-  if (parameters.length === 0) {
-    throw new ApiError(400, "At least one parameter is required.", {
       field: "parameters",
     });
   }
@@ -163,35 +134,41 @@ function buildParameterData(parameters) {
         parameter.order === undefined
           ? index + 1
           : Number.isInteger(Number(parameter.order))
-            ? Number(parameter.order)
-            : index + 1,
+          ? Number(parameter.order)
+          : index + 1,
     };
   });
 }
 
 async function resolveLaboratoryIdForCreate({ user, laboratoryId }) {
-  assertSuperAdmin(user);
-
-  const normalizedLaboratoryId = normalizeString(laboratoryId);
-
-  // SUPERADMIN can omit laboratoryId to create a global template.
-  if (!normalizedLaboratoryId) {
-    return null;
+  if (user.role === "LAB_ADMIN") {
+    return user.laboratoryId;
   }
 
-  assertUuid(normalizedLaboratoryId, "laboratoryId");
+  if (user.role === "SUPERADMIN") {
+    const normalizedLaboratoryId = normalizeString(laboratoryId);
 
-  const laboratory = await prisma.laboratory.findUnique({
-    where: { id: normalizedLaboratoryId },
-  });
+    // SUPERADMIN can omit laboratoryId to create a global template.
+    if (!normalizedLaboratoryId) {
+      return null;
+    }
 
-  if (!laboratory) {
-    throw new ApiError(404, "Laboratory not found.", {
-      field: "laboratoryId",
+    assertUuid(normalizedLaboratoryId, "laboratoryId");
+
+    const laboratory = await prisma.laboratory.findUnique({
+      where: { id: normalizedLaboratoryId },
     });
+
+    if (!laboratory) {
+      throw new ApiError(404, "Laboratory not found.", {
+        field: "laboratoryId",
+      });
+    }
+
+    return normalizedLaboratoryId;
   }
 
-  return normalizedLaboratoryId;
+  throw new ApiError(403, "You are not authorized to create test definitions.");
 }
 
 function handlePrismaError(error) {
@@ -201,7 +178,7 @@ function handlePrismaError(error) {
       "A test definition with the same code already exists in this laboratory.",
       {
         fields: error.meta?.target ?? null,
-      },
+      }
     );
   }
 
@@ -211,7 +188,7 @@ function handlePrismaError(error) {
       "This test definition cannot be deleted because related records already exist.",
       {
         field: error.meta?.field_name ?? null,
-      },
+      }
     );
   }
 
@@ -225,7 +202,7 @@ function handlePrismaError(error) {
 function buildAccessibleWhere(user) {
   const laboratoryId = assertLaboratoryScope(user);
 
-  if (user.role === "LAB_ADMIN") {
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
     return {
       OR: [{ laboratoryId }, { laboratoryId: null }],
     };
@@ -235,7 +212,7 @@ function buildAccessibleWhere(user) {
 }
 
 async function createTestDefinition({ user, data }) {
-  assertSuperAdmin(user);
+  assertCanManageTest(user);
 
   const laboratoryId = await resolveLaboratoryIdForCreate({
     user,
@@ -254,11 +231,11 @@ async function createTestDefinition({ user, data }) {
   }
 
   try {
-    return await prisma.testDefinition.create({
+    const test = await prisma.testDefinition.create({
       data: {
         ...testData,
         laboratoryId,
-        ...(parameters
+        ...(parameters && parameters.length > 0
           ? {
               parameters: {
                 create: parameters,
@@ -274,15 +251,41 @@ async function createTestDefinition({ user, data }) {
         },
       },
     });
+
+    await recordAuditLog({
+      laboratoryId,
+      userId: user.id,
+      action: "TEST_CREATED",
+      entity: "TestDefinition",
+      entityId: test.id,
+      details: { code: test.code, name: test.name, price: test.price },
+    });
+
+    return test;
   } catch (error) {
     handlePrismaError(error);
   }
 }
 
 async function listTestDefinitions({ user, query }) {
-  const where = buildAccessibleWhere(user);
+  const accessibleWhere = buildAccessibleWhere(user);
   const { page, limit } = parsePagination(query);
   const skip = (page - 1) * limit;
+
+  const where = { ...accessibleWhere };
+
+  if (query?.search) {
+    const s = query.search.trim();
+    where.AND = [
+      {
+        OR: [
+          { code: { contains: s, mode: "insensitive" } },
+          { name: { contains: s, mode: "insensitive" } },
+          { description: { contains: s, mode: "insensitive" } },
+        ],
+      },
+    ];
+  }
 
   const [tests, total] = await prisma.$transaction([
     prisma.testDefinition.findMany({
@@ -341,8 +344,6 @@ async function getTestDefinitionById({ user, testId }) {
 }
 
 async function updateTestDefinition({ user, testId, data }) {
-  assertSuperAdmin(user);
-
   assertUuid(testId, "id");
 
   const where = {
@@ -361,18 +362,20 @@ async function updateTestDefinition({ user, testId, data }) {
     throw new ApiError(404, "Test definition not found.");
   }
 
+  assertCanManageTest(user, existingTestDefinition);
+
   const testData = buildTestData(data);
   const parameters = buildParameterData(data.parameters);
 
   if (Object.keys(testData).length === 0 && parameters === undefined) {
     throw new ApiError(
       400,
-      "At least one test field or parameters must be provided.",
+      "At least one test field or parameters must be provided."
     );
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const updatedTest = await prisma.$transaction(async (tx) => {
       if (Object.keys(testData).length > 0) {
         await tx.testDefinition.update({
           where: { id: testId },
@@ -387,12 +390,14 @@ async function updateTestDefinition({ user, testId, data }) {
           },
         });
 
-        await tx.testParameter.createMany({
-          data: parameters.map((parameter) => ({
-            ...parameter,
-            testDefinitionId: testId,
-          })),
-        });
+        if (parameters.length > 0) {
+          await tx.testParameter.createMany({
+            data: parameters.map((parameter) => ({
+              ...parameter,
+              testDefinitionId: testId,
+            })),
+          });
+        }
       }
 
       return tx.testDefinition.findUnique({
@@ -406,14 +411,23 @@ async function updateTestDefinition({ user, testId, data }) {
         },
       });
     });
+
+    await recordAuditLog({
+      laboratoryId: existingTestDefinition.laboratoryId,
+      userId: user.id,
+      action: "TEST_UPDATED",
+      entity: "TestDefinition",
+      entityId: testId,
+      details: { ...testData, parametersCount: parameters?.length },
+    });
+
+    return updatedTest;
   } catch (error) {
     handlePrismaError(error);
   }
 }
 
 async function deleteTestDefinition({ user, testId }) {
-  assertSuperAdmin(user);
-
   assertUuid(testId, "id");
 
   const where = {
@@ -429,9 +443,19 @@ async function deleteTestDefinition({ user, testId }) {
     throw new ApiError(404, "Test definition not found.");
   }
 
+  assertCanManageTest(user, testDefinition);
+
   try {
     await prisma.testDefinition.delete({
       where: { id: testId },
+    });
+
+    await recordAuditLog({
+      laboratoryId: testDefinition.laboratoryId,
+      userId: user.id,
+      action: "TEST_DELETED",
+      entity: "TestDefinition",
+      entityId: testId,
     });
   } catch (error) {
     handlePrismaError(error);

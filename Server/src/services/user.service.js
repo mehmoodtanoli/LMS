@@ -1,45 +1,26 @@
 import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
 import { hashPassword } from "../utils/password.js";
+import {
+  assertUuid,
+  parsePagination,
+  normalizeString,
+  EMAIL_PATTERN,
+} from "../utils/validators.js";
+import { recordAuditLog } from "../utils/audit.js";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN"];
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
+const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN", "LAB_TECH"];
 
-function normalizeString(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function assertUuid(value, fieldName) {
-  if (!UUID_PATTERN.test(value)) {
-    throw new ApiError(400, `${fieldName} must be a valid UUID.`, {
-      field: fieldName,
-    });
-  }
-}
-
-function parsePagination(query) {
-  const page = Number(query?.page ?? DEFAULT_PAGE);
-  const limit = Number(query?.limit ?? DEFAULT_LIMIT);
-
-  if (!Number.isInteger(page) || page < 1) {
-    throw new ApiError(400, "page must be a positive integer.", {
-      field: "page",
-    });
-  }
-
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw new ApiError(400, "limit must be a positive integer.", {
-      field: "limit",
-    });
-  }
-
-  return { page, limit: Math.min(limit, MAX_LIMIT) };
-}
+const userSelect = {
+  id: true,
+  email: true,
+  role: true,
+  isActive: true,
+  laboratoryId: true,
+  laboratory: { select: { id: true, name: true, isActive: true } },
+  createdAt: true,
+  updatedAt: true,
+};
 
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
@@ -55,32 +36,29 @@ function handlePrismaError(error) {
   throw error;
 }
 
-const userSelect = {
-  id: true,
-  email: true,
-  role: true,
-  isActive: true,
-  laboratoryId: true,
-  laboratory: { select: { id: true, name: true, isActive: true } },
-  createdAt: true,
-  updatedAt: true,
-};
-
 async function validateRoleAndLaboratory({ role, laboratoryId }) {
   if (!role || !VALID_ROLES.includes(role)) {
-    throw new ApiError(400, "role must be one of SUPERADMIN or LAB_ADMIN.", {
-      field: "role",
-      validValues: VALID_ROLES,
-    });
+    throw new ApiError(
+      400,
+      `role must be one of ${VALID_ROLES.join(", ")}.`,
+      {
+        field: "role",
+        validValues: VALID_ROLES,
+      }
+    );
   }
 
-  if (role === "LAB_ADMIN") {
+  if (role === "LAB_ADMIN" || role === "LAB_TECH") {
     const normalizedLabId = normalizeString(laboratoryId);
 
     if (!normalizedLabId) {
-      throw new ApiError(400, "laboratoryId is required for LAB_ADMIN users.", {
-        field: "laboratoryId",
-      });
+      throw new ApiError(
+        400,
+        `laboratoryId is required for ${role} users.`,
+        {
+          field: "laboratoryId",
+        }
+      );
     }
 
     assertUuid(normalizedLabId, "laboratoryId");
@@ -101,7 +79,7 @@ async function validateRoleAndLaboratory({ role, laboratoryId }) {
   return null;
 }
 
-async function createUser({ data }) {
+async function createUser({ actor, data }) {
   const email = normalizeString(data.email).toLowerCase();
 
   if (!email) {
@@ -120,9 +98,22 @@ async function createUser({ data }) {
     });
   }
 
-  const laboratoryId = await validateRoleAndLaboratory({
-    role: data.role,
-    laboratoryId: data.laboratoryId,
+  if (String(data.password).length > 128) {
+    throw new ApiError(400, "Password cannot exceed 128 characters.", {
+      field: "password",
+    });
+  }
+
+  const role = data.role ? normalizeString(data.role).toUpperCase() : "LAB_ADMIN";
+
+  let laboratoryId = data.laboratoryId;
+  if (actor?.role === "LAB_ADMIN") {
+    laboratoryId = actor.laboratoryId;
+  }
+
+  const validatedLabId = await validateRoleAndLaboratory({
+    role,
+    laboratoryId,
   });
 
   const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -135,15 +126,26 @@ async function createUser({ data }) {
 
   const passwordHash = await hashPassword(data.password);
 
-  return prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       email,
       passwordHash,
-      role: data.role,
-      laboratoryId,
+      role,
+      laboratoryId: validatedLabId,
     },
     select: userSelect,
   });
+
+  await recordAuditLog({
+    laboratoryId: validatedLabId,
+    userId: actor?.id,
+    action: "USER_CREATED",
+    entity: "User",
+    entityId: user.id,
+    details: { email, role },
+  });
+
+  return user;
 }
 
 async function listUsers({ query }) {
@@ -153,10 +155,14 @@ async function listUsers({ query }) {
   const role = normalizeString(query?.role).toUpperCase();
   if (role) {
     if (!VALID_ROLES.includes(role)) {
-      throw new ApiError(400, "role must be one of SUPERADMIN or LAB_ADMIN.", {
-        field: "role",
-        validValues: VALID_ROLES,
-      });
+      throw new ApiError(
+        400,
+        `role must be one of ${VALID_ROLES.join(", ")}.`,
+        {
+          field: "role",
+          validValues: VALID_ROLES,
+        }
+      );
     }
     where.role = role;
   }
@@ -211,7 +217,7 @@ async function getUserById({ userId }) {
   return user;
 }
 
-async function updateUser({ userId, data }) {
+async function updateUser({ actor, userId, data }) {
   assertUuid(userId, "id");
 
   const existingUser = await prisma.user.findUnique({ where: { id: userId } });
@@ -234,9 +240,15 @@ async function updateUser({ userId, data }) {
     updateData.email = email;
   }
 
-  if (data.password !== undefined) {
+  if (data.password !== undefined && data.password !== "") {
     if (String(data.password).length < 6) {
       throw new ApiError(400, "Password must be at least 6 characters long.", {
+        field: "password",
+      });
+    }
+
+    if (String(data.password).length > 128) {
+      throw new ApiError(400, "Password cannot exceed 128 characters.", {
         field: "password",
       });
     }
@@ -244,7 +256,20 @@ async function updateUser({ userId, data }) {
     updateData.passwordHash = await hashPassword(data.password);
   }
 
-  if (data.role !== undefined || data.laboratoryId !== undefined) {
+  // Handle role / laboratoryId update (Fixes A8: do not reject if LAB_ADMIN keeps same role/lab)
+  const isChangingRole = data.role !== undefined && data.role !== existingUser.role;
+  const isChangingLab =
+    data.laboratoryId !== undefined &&
+    data.laboratoryId !== existingUser.laboratoryId;
+
+  if (isChangingRole || isChangingLab) {
+    if (actor && actor.role !== "SUPERADMIN") {
+      throw new ApiError(
+        403,
+        "Only SUPERADMIN users can change roles or laboratory assignments."
+      );
+    }
+
     const role = data.role ?? existingUser.role;
     const laboratoryId = await validateRoleAndLaboratory({
       role,
@@ -260,17 +285,28 @@ async function updateUser({ userId, data }) {
   }
 
   try {
-    return await prisma.user.update({
+    const updated = await prisma.user.update({
       where: { id: userId },
       data: updateData,
       select: userSelect,
     });
+
+    await recordAuditLog({
+      laboratoryId: updated.laboratoryId,
+      userId: actor?.id,
+      action: "USER_UPDATED",
+      entity: "User",
+      entityId: userId,
+      details: { email: updated.email, role: updated.role },
+    });
+
+    return updated;
   } catch (error) {
     handlePrismaError(error);
   }
 }
 
-async function setUserStatus({ userId, isActive }) {
+async function setUserStatus({ actor, userId, isActive }) {
   assertUuid(userId, "id");
 
   if (typeof isActive !== "boolean") {
@@ -280,11 +316,21 @@ async function setUserStatus({ userId, isActive }) {
   }
 
   try {
-    return await prisma.user.update({
+    const updated = await prisma.user.update({
       where: { id: userId },
       data: { isActive },
       select: userSelect,
     });
+
+    await recordAuditLog({
+      laboratoryId: updated.laboratoryId,
+      userId: actor?.id,
+      action: isActive ? "USER_ACTIVATED" : "USER_DEACTIVATED",
+      entity: "User",
+      entityId: userId,
+    });
+
+    return updated;
   } catch (error) {
     handlePrismaError(error);
   }

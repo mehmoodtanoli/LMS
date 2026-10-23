@@ -20,6 +20,7 @@ import {
   Building2,
   FileText,
   ListOrdered,
+  DollarSign,
 } from "lucide-react";
 
 const blankParameter = {
@@ -32,6 +33,7 @@ const blankTest = {
   code: "",
   name: "",
   description: "",
+  price: "",
   laboratoryId: "",
   parameters: [],
 };
@@ -68,7 +70,7 @@ export default function Tests() {
         <div>
           <h1 className="page-title">Tests Catalog</h1>
           <p className="page-subtitle">
-            Manage standardized laboratory investigation templates and parameter ranges ({filtered.length} total)
+            Manage standardized laboratory investigation templates, pricing, and parameter ranges ({filtered.length} total)
           </p>
         </div>
 
@@ -100,8 +102,9 @@ export default function Tests() {
           <table className="clean-table">
             <thead>
               <tr>
-                <th style={{ width: "140px" }}>Code</th>
+                <th style={{ width: "120px" }}>Code</th>
                 <th>Investigation Name</th>
+                <th>Price (Fee)</th>
                 <th>Scope</th>
                 <th>Parameters</th>
                 <th>Created</th>
@@ -112,6 +115,8 @@ export default function Tests() {
               {filtered.map((test) => {
                 const isGlobal = !test.laboratoryId;
                 const paramCount = test.parameters?.length ?? 0;
+                const priceNum = Number(test.price || 0);
+
                 return (
                   <tr key={test.id}>
                     {/* Code */}
@@ -141,6 +146,13 @@ export default function Tests() {
                           )}
                         </div>
                       </div>
+                    </td>
+
+                    {/* Price (Fixes A1) */}
+                    <td className="cell-amount">
+                      <span className="amount-val" style={{ fontWeight: 600 }}>
+                        Rs {priceNum.toLocaleString()}
+                      </span>
                     </td>
 
                     {/* Scope */}
@@ -219,6 +231,7 @@ export function TestForm() {
           code: test.code || "",
           name: test.name || "",
           description: test.description || "",
+          price: test.price !== undefined && test.price !== null ? String(test.price) : "",
           laboratoryId: test.laboratoryId || "",
           parameters: (test.parameters || []).map((parameter) => ({
             name: parameter.name || "",
@@ -276,6 +289,7 @@ export function TestForm() {
     const data = {
       code: form.code.trim().toUpperCase(),
       name: form.name.trim(),
+      price: form.price !== "" ? Number(form.price) : 0,
       ...(form.description.trim()
         ? { description: form.description.trim() }
         : {}),
@@ -313,7 +327,7 @@ export function TestForm() {
         <div>
           <h1 className="page-title">{id ? "Edit Test Definition" : "New Test Definition"}</h1>
           <p className="page-subtitle">
-            Configure investigation codes, clinical parameters, units, and normal reference ranges
+            Configure investigation codes, clinical parameters, fees, and normal reference ranges
           </p>
         </div>
       </header>
@@ -350,6 +364,47 @@ export function TestForm() {
             </div>
           </div>
 
+          {/* Row 2: Price & Scope */}
+          <div className="form-row-2col">
+            <div className="form-group-clean">
+              <label>
+                Standard Price / Fee (Rs) <span className="required-star">*</span>
+              </label>
+              <input
+                required
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="e.g. 800"
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: e.target.value })}
+              />
+              <span className="field-hint">Standard investigation billable rate in PKR</span>
+            </div>
+
+            <div className="form-group-clean">
+              <label>Scope / Assigned Laboratory</label>
+              <div className="select-wrapper">
+                <select
+                  value={form.laboratoryId}
+                  onChange={(e) =>
+                    setForm({ ...form, laboratoryId: e.target.value })
+                  }
+                >
+                  <option value="">Global Template (Accessible to all laboratories)</option>
+                  {laboratories.map((lab) => (
+                    <option key={lab.id} value={lab.id}>
+                      {lab.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span className="field-hint">
+                Global templates can be ordered across any laboratory branch
+              </span>
+            </div>
+          </div>
+
           {/* Description */}
           <div className="form-group-clean">
             <label>Description / Clinical Notes</label>
@@ -358,29 +413,6 @@ export function TestForm() {
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
-          </div>
-
-          {/* Scope / Laboratory */}
-          <div className="form-group-clean">
-            <label>Scope / Assigned Laboratory</label>
-            <div className="select-wrapper">
-              <select
-                value={form.laboratoryId}
-                onChange={(e) =>
-                  setForm({ ...form, laboratoryId: e.target.value })
-                }
-              >
-                <option value="">Global Template (Accessible to all laboratories)</option>
-                {laboratories.map((lab) => (
-                  <option key={lab.id} value={lab.id}>
-                    {lab.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <span className="field-hint">
-              Global templates can be ordered and evaluated across any laboratory branch
-            </span>
           </div>
 
           {/* Parameters Builder */}
@@ -450,51 +482,78 @@ export function TestForm() {
                     <div
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "1.5fr 1fr 1.5fr",
+                        gridTemplateColumns: "1.4fr 1fr 1.6fr",
                         gap: "12px",
                       }}
                     >
-                      <input
-                        required
-                        placeholder="Parameter Name (e.g. Hemoglobin)"
-                        value={parameter.name}
-                        onChange={(e) =>
-                          updateParameter(index, "name", e.target.value)
-                        }
-                        style={{ height: "36px" }}
-                      />
-                      <input
-                        placeholder="Unit (e.g. g/dL)"
-                        value={parameter.unit}
-                        onChange={(e) =>
-                          updateParameter(index, "unit", e.target.value)
-                        }
-                        style={{ height: "36px" }}
-                      />
-                      <input
-                        placeholder="Normal Range (e.g. 13.0 - 17.0)"
-                        value={parameter.referenceRange}
-                        onChange={(e) =>
-                          updateParameter(index, "referenceRange", e.target.value)
-                        }
-                        style={{ height: "36px" }}
-                      />
+                      <div className="form-group-clean">
+                        <label style={{ fontSize: "0.8rem" }}>
+                          Parameter Name <span className="required-star">*</span>
+                        </label>
+                        <input
+                          required
+                          placeholder="e.g. Hemoglobin"
+                          value={parameter.name}
+                          onChange={(e) =>
+                            updateParameter(index, "name", e.target.value)
+                          }
+                          style={{ height: "36px", fontSize: "0.86rem" }}
+                        />
+                      </div>
+
+                      <div className="form-group-clean">
+                        <label style={{ fontSize: "0.8rem" }}>Unit</label>
+                        <input
+                          placeholder="e.g. g/dL"
+                          value={parameter.unit}
+                          onChange={(e) =>
+                            updateParameter(index, "unit", e.target.value)
+                          }
+                          style={{ height: "36px", fontSize: "0.86rem" }}
+                        />
+                      </div>
+
+                      <div className="form-group-clean">
+                        <label style={{ fontSize: "0.8rem" }}>Normal Reference Range</label>
+                        <input
+                          placeholder="e.g. 13.5 - 17.5"
+                          value={parameter.referenceRange}
+                          onChange={(e) =>
+                            updateParameter(index, "referenceRange", e.target.value)
+                          }
+                          style={{ height: "36px", fontSize: "0.86rem" }}
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="empty-subtext" style={{ background: "#f8fafc", borderRadius: "8px" }}>
-                No individual parameters added yet. Single-value tests do not require parameter sub-fields.
+              <div
+                style={{
+                  padding: "24px",
+                  textAlign: "center",
+                  background: "#f8fafc",
+                  border: "1px dashed #cbd5e1",
+                  borderRadius: "8px",
+                  color: "#64748b",
+                  fontSize: "0.86rem",
+                }}
+              >
+                No parameters added yet. Click &ldquo;Add Parameter&rdquo; to configure test fields, or leave empty for qualitative summary investigations.
               </div>
             )}
           </div>
 
           {/* Form Actions */}
-          <div className="form-actions-clean">
-            <Link to="/admin/tests" className="btn-cancel">
+          <div className="form-actions-clean" style={{ marginTop: "24px" }}>
+            <button
+              type="button"
+              className="btn-cancel"
+              onClick={() => navigate("/admin/tests")}
+            >
               Cancel
-            </Link>
+            </button>
             <button
               type="submit"
               className="btn-primary-action"
@@ -514,19 +573,23 @@ export function TestDetail() {
   const { id } = useParams();
   const [test, setTest] = useState(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     testsApi
       .get(id)
       .then((r) => setTest(r.data.test))
-      .catch((e) => setError(apiError(e)));
+      .catch((e) => setError(apiError(e)))
+      .finally(() => setLoading(false));
   }, [id]);
 
+  if (loading) return <Loading text="Loading test definition details…" />;
   if (error) return <ErrorMessage error={error} />;
-  if (!test) return <Loading text="Loading test definition…" />;
+  if (!test) return <Empty>Test definition record not found.</Empty>;
 
   const isGlobal = !test.laboratoryId;
   const parameters = test.parameters || [];
+  const priceNum = Number(test.price || 0);
 
   return (
     <div className="test-detail-page">
@@ -548,7 +611,11 @@ export function TestDetail() {
               <span className="test-tag">{test.code}</span>
             </div>
             <p className="page-subtitle">
-              Scope:{" "}
+              Standard Fee:{" "}
+              <strong style={{ color: "#0c3c6d", fontSize: "1rem" }}>
+                Rs {priceNum.toLocaleString()}
+              </strong>
+              {" · "}Scope:{" "}
               <span
                 className={`status-pill ${
                   isGlobal

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { ordersApi, paymentsApi } from "../api/resources";
 import { apiError } from "../api/client";
 import { Empty, ErrorMessage, Loading, date, patientName } from "../components/Common";
-import { Plus, CreditCard, Search, X, Check, ArrowDownLeft, Clock } from "lucide-react";
+import { Plus, CreditCard, Search, X, Check, ArrowDownLeft, Clock, AlertCircle } from "lucide-react";
 
 function getInitials(name) {
   if (!name) return "PT";
@@ -14,10 +14,11 @@ function getInitials(name) {
 export default function Payments() {
   const [payments, setPayments] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [selectedBilling, setSelectedBilling] = useState(null);
+  const [loadingBilling, setLoadingBilling] = useState(false);
   const [form, setForm] = useState({
     orderId: "",
     amount: "",
-    status: "PAID",
     paidAt: new Date().toISOString().split("T")[0],
     notes: "",
   });
@@ -44,25 +45,48 @@ export default function Payments() {
 
   useEffect(load, []);
 
+  const handleOrderChange = async (orderId) => {
+    setForm((prev) => ({ ...prev, orderId, amount: "" }));
+    setSelectedBilling(null);
+
+    if (!orderId) return;
+
+    setLoadingBilling(true);
+    try {
+      const res = await paymentsApi.billing(orderId);
+      const billing = res.data.billing;
+      setSelectedBilling(billing);
+      if (billing && billing.remainingAmount > 0) {
+        setForm((prev) => ({ ...prev, amount: String(billing.remainingAmount) }));
+      }
+    } catch (err) {
+      console.error("Failed to load order billing:", err);
+    } finally {
+      setLoadingBilling(false);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     setSubmitting(true);
+
+    // Omit status: server sets PAID and validates remaining balance (Fixes A3, Rule 1)
     try {
       await paymentsApi.create({
         orderId: form.orderId,
-        amount: form.amount,
-        status: form.status,
+        amount: Number(form.amount),
         ...(form.paidAt ? { paidAt: form.paidAt } : {}),
         ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
       });
+
       setForm({
         orderId: "",
         amount: "",
-        status: "PAID",
         paidAt: new Date().toISOString().split("T")[0],
         notes: "",
       });
+      setSelectedBilling(null);
       setIsModalOpen(false);
       load();
     } catch (err) {
@@ -109,7 +133,10 @@ export default function Payments() {
 
         <button
           className="btn-primary-action"
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setSelectedBilling(null);
+            setIsModalOpen(true);
+          }}
         >
           <Plus size={16} />
           <span>Record Payment</span>
@@ -198,7 +225,6 @@ export default function Payments() {
                 const orderCode = payment.order
                   ? `ORD-${payment.order.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`
                   : "ORD-001";
-                const isPaid = payment.status === "PAID";
 
                 return (
                   <tr key={payment.id}>
@@ -208,7 +234,7 @@ export default function Payments() {
                         <div className="patient-info">
                           <span className="patient-name">{pName}</span>
                           <span className="patient-cnic">
-                            {payment.order?.patient?.cnic || "35201-1234567-1"}
+                            {payment.order?.patient?.cnic || "—"}
                           </span>
                         </div>
                       </div>
@@ -218,23 +244,27 @@ export default function Payments() {
 
                     <td className="cell-amount">
                       <span className="amount-val">
-                        Rs {Number(payment.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        Rs {Number(payment.amount || 0).toLocaleString()}
                       </span>
                     </td>
 
                     <td className="cell-status">
                       <span
                         className={`status-pill ${
-                          isPaid ? "status-badge-finalized" : "status-badge-pending"
+                          payment.status === "PAID"
+                            ? "status-badge-completed"
+                            : payment.status === "PARTIALLY_PAID"
+                            ? "status-badge-inprogress"
+                            : "status-badge-pending"
                         }`}
                       >
-                        {payment.status?.replace("_", " ")}
+                        {payment.status}
                       </span>
                     </td>
 
                     <td className="cell-created">{date(payment.paidAt)}</td>
 
-                    <td className="cell-demographics">{payment.notes || "—"}</td>
+                    <td className="cell-doctor">{payment.notes || "—"}</td>
                   </tr>
                 );
               })}
@@ -256,6 +286,7 @@ export default function Payments() {
           <div
             className="modal-card-clean"
             onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "560px" }}
           >
             <div className="modal-header-clean">
               <h2>Record Payment</h2>
@@ -277,7 +308,7 @@ export default function Payments() {
                 <select
                   required
                   value={form.orderId}
-                  onChange={(e) => setForm({ ...form, orderId: e.target.value })}
+                  onChange={(e) => handleOrderChange(e.target.value)}
                 >
                   <option value="">Select an order...</option>
                   {orders.map((o) => {
@@ -285,39 +316,101 @@ export default function Payments() {
                     const testsStr = o.orderedTestItems
                       ?.map((x) => x.testDefinition?.code || x.testDefinition?.name)
                       .join(", ");
+                    const code = `ORD-${o.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`;
                     return (
                       <option key={o.id} value={o.id}>
-                        {name} — {testsStr || "Diagnostic tests"}
+                        {code} · {name} — {testsStr || "Diagnostic tests"}
                       </option>
                     );
                   })}
                 </select>
               </div>
 
+              {/* Dynamic Billing Summary Box (Fixes A3, Rule 1) */}
+              {loadingBilling && (
+                <div style={{ fontSize: "0.85rem", color: "#64748b", margin: "8px 0" }}>
+                  Calculating order billing and balance…
+                </div>
+              )}
+
+              {selectedBilling && (
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                    padding: "12px 14px",
+                    margin: "10px 0 14px",
+                    fontSize: "0.86rem",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <span style={{ color: "#64748b" }}>Order Total:</span>
+                    <strong>Rs {selectedBilling.totalAmount.toLocaleString()}</strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <span style={{ color: "#64748b" }}>Already Paid:</span>
+                    <span style={{ color: "#16a34a", fontWeight: 600 }}>
+                      Rs {selectedBilling.paidAmount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      borderTop: "1px solid #e2e8f0",
+                      paddingTop: "6px",
+                      marginTop: "6px",
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, color: "#1e293b" }}>Remaining Balance Due:</span>
+                    <strong
+                      style={{
+                        color: selectedBilling.remainingAmount > 0 ? "#dc2626" : "#16a34a",
+                        fontSize: "0.95rem",
+                      }}
+                    >
+                      Rs {selectedBilling.remainingAmount.toLocaleString()}
+                    </strong>
+                  </div>
+                  {selectedBilling.remainingAmount <= 0 && (
+                    <div
+                      style={{
+                        marginTop: "8px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        color: "#16a34a",
+                        fontWeight: 600,
+                        fontSize: "0.82rem",
+                      }}
+                    >
+                      <Check size={14} />
+                      <span>This order has already been paid in full.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="form-group-clean">
-                <label>Amount (Rs) <span className="required-star">*</span></label>
+                <label>
+                  Payment Amount (Rs) <span className="required-star">*</span>
+                </label>
                 <input
                   type="number"
                   required
                   min="1"
+                  max={selectedBilling && selectedBilling.totalAmount > 0 ? selectedBilling.remainingAmount : undefined}
                   step="0.01"
                   placeholder="e.g. 1500"
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: e.target.value })}
                 />
-              </div>
-
-              <div className="form-group-clean">
-                <label>Payment Status</label>
-                <select
-                  value={form.status}
-                  onChange={(e) => setForm({ ...form, status: e.target.value })}
-                >
-                  <option value="PAID">PAID</option>
-                  <option value="UNPAID">UNPAID</option>
-                  <option value="PARTIALLY_PAID">PARTIALLY PAID</option>
-                  <option value="REFUNDED">REFUNDED</option>
-                </select>
+                {selectedBilling && selectedBilling.remainingAmount > 0 && (
+                  <span className="field-hint">
+                    Maximum payable amount capped at remaining balance of Rs {selectedBilling.remainingAmount}
+                  </span>
+                )}
               </div>
 
               <div className="form-group-clean">
@@ -330,7 +423,7 @@ export default function Payments() {
               </div>
 
               <div className="form-group-clean">
-                <label>Notes</label>
+                <label>Payment Notes / Receipt Reference</label>
                 <input
                   type="text"
                   placeholder="e.g. Paid in cash at reception"
@@ -350,7 +443,12 @@ export default function Payments() {
                 <button
                   type="submit"
                   className="btn-primary-action"
-                  disabled={submitting}
+                  disabled={
+                    submitting ||
+                    (selectedBilling &&
+                      selectedBilling.totalAmount > 0 &&
+                      selectedBilling.remainingAmount <= 0)
+                  }
                 >
                   {submitting ? "Saving…" : "Save Payment"}
                 </button>

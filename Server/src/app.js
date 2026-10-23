@@ -18,8 +18,22 @@ import dashboardRouter from "./routes/dashboard.route.js";
 
 const app = express();
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Trust proxy for proper IP resolution behind reverse proxy / load balancer (Fixes #8)
+app.set("trust proxy", 1);
+
+// Basic security headers middleware (Fixes S2)
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
+
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(cors());
 
 const morganStream = {

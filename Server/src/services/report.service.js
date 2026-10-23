@@ -1,13 +1,14 @@
 import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
+import {
+  assertUuid,
+  parsePagination,
+  normalizeString,
+  normalizeOptionalString,
+} from "../utils/validators.js";
+import { recordAuditLog } from "../utils/audit.js";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const VALID_REPORT_STATUSES = ["DRAFT", "FINAL", "AMENDED"];
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
+const VALID_REPORT_STATUSES = ["DRAFT", "FINAL", "AMENDED", "SUPERSEDED"];
 
 const REPORT_SELECT = {
   id: true,
@@ -41,6 +42,11 @@ const REPORT_SELECT = {
           name: true,
           fullName: true,
           cnic: true,
+          phone: true,
+          age: true,
+          ageUnit: true,
+          gender: true,
+          address: true,
           laboratoryId: true,
         },
       },
@@ -48,6 +54,7 @@ const REPORT_SELECT = {
       orderedTestItems: {
         select: {
           id: true,
+          price: true,
           notes: true,
 
           testDefinition: {
@@ -55,6 +62,7 @@ const REPORT_SELECT = {
               id: true,
               code: true,
               name: true,
+              price: true,
               laboratoryId: true,
 
               parameters: {
@@ -81,6 +89,8 @@ const REPORT_SELECT = {
               referenceRange: true,
               interpretation: true,
               notes: true,
+              finalizedAt: true,
+              finalizedById: true,
               createdAt: true,
               updatedAt: true,
             },
@@ -102,33 +112,16 @@ const REPORT_SELECT = {
   },
 };
 
-function normalizeString(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeOptionalString(value) {
-  const normalizedValue = normalizeString(value);
-  return normalizedValue ? normalizedValue : undefined;
-}
-
-function assertUuid(value, fieldName) {
-  if (!UUID_PATTERN.test(value)) {
-    throw new ApiError(400, `${fieldName} must be a valid UUID.`, {
-      field: fieldName,
-    });
-  }
-}
-
 function assertLabAdminScope(user) {
   if (user.role === "SUPERADMIN") {
     return null;
   }
 
-  if (user.role === "LAB_ADMIN") {
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
     if (!user.laboratoryId) {
       throw new ApiError(
         403,
-        "LAB_ADMIN users must be assigned to a laboratory before managing reports.",
+        "User must be assigned to a laboratory before accessing reports."
       );
     }
 
@@ -150,31 +143,6 @@ function buildListWhere(user) {
   }
 
   return {};
-}
-
-function parsePagination(query) {
-  const pageValue = query?.page ?? DEFAULT_PAGE;
-  const limitValue = query?.limit ?? DEFAULT_LIMIT;
-
-  const page = Number(pageValue);
-  const limit = Number(limitValue);
-
-  if (!Number.isInteger(page) || page < 1) {
-    throw new ApiError(400, "page must be a positive integer.", {
-      field: "page",
-    });
-  }
-
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw new ApiError(400, "limit must be a positive integer.", {
-      field: "limit",
-    });
-  }
-
-  return {
-    page,
-    limit: Math.min(limit, MAX_LIMIT),
-  };
 }
 
 function normalizeReportStatus(value) {
@@ -199,16 +167,7 @@ function buildReportData(data) {
 
   if (data.title !== undefined) {
     const title = normalizeOptionalString(data.title);
-
-    if (data.title !== null && data.title !== undefined && !title) {
-      throw new ApiError(400, "title cannot be empty if provided.", {
-        field: "title",
-      });
-    }
-
-    if (title !== undefined) {
-      reportData.title = title;
-    }
+    reportData.title = title ?? null;
   }
 
   if (data.status !== undefined) {
@@ -222,10 +181,10 @@ function handlePrismaError(error) {
   if (error?.code === "P2002") {
     throw new ApiError(
       409,
-      "A report with this unique detail already exists.",
+      "A report with this unique version already exists for this order.",
       {
         fields: error.meta?.target ?? null,
-      },
+      }
     );
   }
 
@@ -272,6 +231,11 @@ async function findAccessibleOrder({ user, orderId }) {
           name: true,
           fullName: true,
           cnic: true,
+          phone: true,
+          age: true,
+          ageUnit: true,
+          gender: true,
+          address: true,
           laboratoryId: true,
         },
       },
@@ -279,6 +243,7 @@ async function findAccessibleOrder({ user, orderId }) {
       orderedTestItems: {
         select: {
           id: true,
+          price: true,
           notes: true,
 
           testDefinition: {
@@ -286,6 +251,7 @@ async function findAccessibleOrder({ user, orderId }) {
               id: true,
               code: true,
               name: true,
+              price: true,
               laboratoryId: true,
 
               parameters: {
@@ -312,6 +278,8 @@ async function findAccessibleOrder({ user, orderId }) {
               referenceRange: true,
               interpretation: true,
               notes: true,
+              finalizedAt: true,
+              finalizedById: true,
               createdAt: true,
               updatedAt: true,
             },
@@ -329,6 +297,7 @@ async function findAccessibleOrder({ user, orderId }) {
 }
 
 function buildReportSnapshot(order) {
+  // Complete patient demographics included in snapshot (Fixes A2)
   return {
     order: {
       id: order.id,
@@ -340,7 +309,18 @@ function buildReportSnapshot(order) {
 
     laboratory: order.laboratory,
 
-    patient: order.patient,
+    patient: {
+      id: order.patient.id,
+      name: order.patient.name,
+      fullName: order.patient.fullName,
+      cnic: order.patient.cnic,
+      phone: order.patient.phone,
+      age: order.patient.age,
+      ageUnit: order.patient.ageUnit,
+      gender: order.patient.gender,
+      address: order.patient.address,
+      laboratoryId: order.patient.laboratoryId,
+    },
 
     orderedTestItems: order.orderedTestItems,
 
@@ -362,37 +342,101 @@ async function createReport({ user, data }) {
     orderId,
   });
 
+  // Report Integrity Guard 1: Cannot generate report for CANCELLED order (Fixes A5)
+  if (order.status === "CANCELLED") {
+    throw new ApiError(400, "Cannot generate a diagnostic report for a cancelled order.");
+  }
+
+  if (!order.orderedTestItems || order.orderedTestItems.length === 0) {
+    throw new ApiError(400, "Test order does not contain any ordered test items.");
+  }
+
   const reportData = buildReportData(data);
+  const targetStatus = reportData.status || "DRAFT";
 
-  const latestReport = await prisma.report.findFirst({
-    where: {
-      orderId,
-    },
+  // Report Integrity Guard 2: For FINAL reports, all test results must be FINALIZED (Fixes A5)
+  if (targetStatus === "FINAL") {
+    const unfinalizedItems = order.orderedTestItems.filter(
+      (item) => !item.result || item.result.status !== "FINALIZED"
+    );
 
-    orderBy: {
-      version: "desc",
-    },
-
-    select: {
-      id: true,
-      version: true,
-    },
-  });
+    if (unfinalizedItems.length > 0) {
+      const names = unfinalizedItems
+        .map((i) => i.testDefinition?.code || i.testDefinition?.name)
+        .join(", ");
+      throw new ApiError(
+        400,
+        `All test results must be FINALIZED before issuing a FINAL report. Incomplete tests: ${names}`,
+        {
+          unfinalizedCount: unfinalizedItems.length,
+        }
+      );
+    }
+  }
 
   const snapshot = buildReportSnapshot(order);
 
   try {
-    return await prisma.report.create({
-      data: {
-        laboratoryId: order.laboratoryId,
-        orderId,
-        version: latestReport ? latestReport.version + 1 : 1,
-        previousReportId: latestReport ? latestReport.id : null,
-        snapshot,
-        ...reportData,
-      },
+    return await prisma.$transaction(async (tx) => {
+      const latestReport = await tx.report.findFirst({
+        where: {
+          orderId,
+        },
+        orderBy: {
+          version: "desc",
+        },
+        select: {
+          id: true,
+          version: true,
+          status: true,
+        },
+      });
 
-      select: REPORT_SELECT,
+      // Report Integrity Guard 3: Version 1 cannot start as AMENDED (Fixes A5)
+      if (targetStatus === "AMENDED" && !latestReport) {
+        throw new ApiError(
+          400,
+          "The first report version cannot be created as AMENDED. Please create a DRAFT or FINAL report first."
+        );
+      }
+
+      const nextVersion = latestReport ? latestReport.version + 1 : 1;
+
+      // Report Integrity Guard 4: Mark previous report as SUPERSEDED (Fixes A5)
+      if (latestReport) {
+        await tx.report.update({
+          where: { id: latestReport.id },
+          data: { status: "SUPERSEDED" },
+        });
+      }
+
+      const report = await tx.report.create({
+        data: {
+          laboratoryId: order.laboratoryId,
+          orderId,
+          version: nextVersion,
+          previousReportId: latestReport ? latestReport.id : null,
+          snapshot,
+          status: targetStatus,
+          ...(reportData.title ? { title: reportData.title } : {}),
+        },
+        select: REPORT_SELECT,
+      });
+
+      await recordAuditLog({
+        laboratoryId: order.laboratoryId,
+        userId: user.id,
+        action: "REPORT_CREATED",
+        entity: "Report",
+        entityId: report.id,
+        details: {
+          orderId,
+          version: nextVersion,
+          status: targetStatus,
+        },
+      });
+
+      return report;
     });
   } catch (error) {
     handlePrismaError(error);
@@ -400,21 +444,43 @@ async function createReport({ user, data }) {
 }
 
 async function listReports({ user, query }) {
-  const where = buildListWhere(user);
+  const accessibleWhere = buildListWhere(user);
   const { page, limit } = parsePagination(query);
   const skip = (page - 1) * limit;
+
+  const where = { ...accessibleWhere };
+
+  if (query?.status) {
+    where.status = normalizeReportStatus(query.status);
+  }
+
+  if (query?.orderId) {
+    assertUuid(query.orderId, "orderId");
+    where.orderId = query.orderId;
+  }
+
+  if (query?.search) {
+    const s = query.search.trim();
+    where.order = {
+      ...where.order,
+      patient: {
+        OR: [
+          { name: { contains: s, mode: "insensitive" } },
+          { fullName: { contains: s, mode: "insensitive" } },
+          { cnic: { contains: s } },
+        ],
+      },
+    };
+  }
 
   const [reports, total] = await prisma.$transaction([
     prisma.report.findMany({
       where,
-
       orderBy: {
         createdAt: "desc",
       },
-
       skip,
       take: limit,
-
       select: REPORT_SELECT,
     }),
 
@@ -425,7 +491,6 @@ async function listReports({ user, query }) {
 
   return {
     reports,
-
     meta: {
       page,
       limit,

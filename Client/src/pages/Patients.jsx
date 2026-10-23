@@ -18,6 +18,7 @@ import {
   Status,
   date,
   patientName,
+  formatAge,
 } from "../components/Common";
 import {
   ArrowLeft,
@@ -38,6 +39,7 @@ const blank = {
   name: "",
   fullName: "",
   age: "",
+  ageUnit: "YEARS",
   gender: "MALE",
   cnic: "",
   phone: "",
@@ -81,7 +83,7 @@ export default function Patients() {
   };
 
   const filtered = patients.filter((p) =>
-    `${p.name} ${p.fullName || ""} ${p.cnic} ${p.phone || ""}`
+    `${p.name} ${p.fullName || ""} ${p.cnic || ""} ${p.phone || ""}`
       .toLowerCase()
       .includes(search.toLowerCase())
   );
@@ -153,12 +155,12 @@ export default function Patients() {
                       </div>
                     </td>
 
-                    <td className="cell-cnic">{p.cnic}</td>
+                    <td className="cell-cnic">{p.cnic || "—"}</td>
 
                     <td className="cell-phone">{p.phone || "—"}</td>
 
                     <td className="cell-demographics">
-                      {p.age} Y / {p.gender}
+                      {formatAge(p)} / {p.gender}
                     </td>
 
                     <td style={{ textAlign: "right" }}>
@@ -220,6 +222,7 @@ export function PatientForm() {
             ...blank,
             ...r.data.patient,
             age: String(r.data.patient.age),
+            ageUnit: r.data.patient.ageUnit || "YEARS",
           })
         )
         .catch((e) => setError(apiError(e)))
@@ -233,9 +236,10 @@ export function PatientForm() {
 
     const name = form.name.trim();
     const fullName = form.fullName.trim();
-    const cnic = form.cnic.replace(/\D/g, "");
-    const phone = form.phone.trim();
+    const cnic = form.cnic ? form.cnic.replace(/\D/g, "") : "";
+    const phone = form.phone ? form.phone.trim() : "";
     const age = Number(form.age);
+    const ageUnit = form.ageUnit || "YEARS";
 
     if (!name) {
       setError("First name is required.");
@@ -247,20 +251,20 @@ export function PatientForm() {
       return;
     }
 
-    if (!/^\d{13}$/.test(cnic)) {
+    if (cnic && !/^\d{13}$/.test(cnic)) {
       setError("CNIC must contain exactly 13 digits (e.g. 3520112345671).");
       return;
     }
 
-    if (!/^03\d{9}$/.test(phone)) {
+    if (phone && !/^03\d{9}$/.test(phone)) {
       setError(
         "Phone number must be a valid Pakistani mobile number, e.g. 03001234567."
       );
       return;
     }
 
-    if (!Number.isInteger(age) || age < 1 || age > 120) {
-      setError("Age must be a whole number between 1 and 120.");
+    if (!Number.isInteger(age) || age < 1) {
+      setError("Age must be a valid positive whole number.");
       return;
     }
 
@@ -273,12 +277,13 @@ export function PatientForm() {
       ...form,
       name,
       fullName,
-      cnic,
-      phone,
+      cnic: cnic || null,
+      phone: phone || null,
       age,
+      ageUnit,
     };
 
-    if (!data.address?.trim()) delete data.address;
+    if (!data.address?.trim()) data.address = null;
     else data.address = data.address.trim();
 
     if (!data.laboratoryId) delete data.laboratoryId;
@@ -355,18 +360,29 @@ export function PatientForm() {
           <div className="form-row-2col">
             <div className="form-group-clean">
               <label>
-                Age (Years) <span className="required-star">*</span>
+                Age <span className="required-star">*</span>
               </label>
-              <input
-                required
-                type="number"
-                min="1"
-                max="120"
-                step="1"
-                placeholder="e.g. 32"
-                value={form.age}
-                onChange={(e) => setForm({ ...form, age: e.target.value })}
-              />
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 32"
+                  value={form.age}
+                  onChange={(e) => setForm({ ...form, age: e.target.value })}
+                  style={{ flex: 1 }}
+                />
+                <select
+                  value={form.ageUnit || "YEARS"}
+                  onChange={(e) => setForm({ ...form, ageUnit: e.target.value })}
+                  style={{ width: "110px", padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--border-color, #d1d5db)" }}
+                >
+                  <option value="YEARS">Years</option>
+                  <option value="MONTHS">Months</option>
+                  <option value="DAYS">Days</option>
+                </select>
+              </div>
             </div>
 
             <div className="form-group-clean">
@@ -392,15 +408,13 @@ export function PatientForm() {
           <div className="form-row-2col">
             <div className="form-group-clean">
               <label>
-                CNIC Number (13 digits) <span className="required-star">*</span>
+                CNIC Number (13 digits)
               </label>
               <input
-                required
                 inputMode="numeric"
                 maxLength="13"
-                pattern="[0-9]{13}"
-                placeholder="e.g. 3520112345671"
-                value={form.cnic}
+                placeholder="e.g. 3520112345671 (Optional)"
+                value={form.cnic || ""}
                 onChange={(e) =>
                   setForm({
                     ...form,
@@ -408,21 +422,19 @@ export function PatientForm() {
                   })
                 }
               />
-              <span className="field-hint">13 digits without hyphens</span>
+              <span className="field-hint">Optional for children/dependents</span>
             </div>
 
             <div className="form-group-clean">
               <label>
-                Mobile Phone <span className="required-star">*</span>
+                Mobile Phone
               </label>
               <input
-                required
                 type="tel"
                 inputMode="numeric"
                 maxLength="11"
-                pattern="03[0-9]{9}"
-                placeholder="03001234567"
-                value={form.phone}
+                placeholder="03001234567 (Optional)"
+                value={form.phone || ""}
                 onChange={(e) =>
                   setForm({
                     ...form,
@@ -552,7 +564,7 @@ export function PatientDetail() {
           <div>
             <h1 className="page-title">{pName}</h1>
             <p className="page-subtitle">
-              CNIC: {patient.cnic} · {patient.age} Years · {patient.gender}
+              CNIC: {patient.cnic || "None"} · {formatAge(patient)} · {patient.gender}
             </p>
           </div>
         </div>

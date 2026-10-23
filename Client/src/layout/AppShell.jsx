@@ -62,31 +62,51 @@ export default function AppShell() {
 
         {/* Primary Navigation */}
         <nav className="sidebar-nav" aria-label="Main navigation">
-          {links.map(([to, label, Icon]) => (
-            <NavLink
-              end={to === "/"}
-              to={to}
-              key={to}
-              className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
-            >
-              <Icon size={18} className="nav-icon" />
-              <span>{label}</span>
-            </NavLink>
-          ))}
+          {links
+            .filter(([to]) => {
+              if (user?.role === "LAB_TECH") {
+                return to === "/" || to === "/results" || to === "/orders";
+              }
+              return true;
+            })
+            .map(([to, label, Icon]) => (
+              <NavLink
+                end={to === "/"}
+                to={to}
+                key={to}
+                className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+              >
+                <Icon size={18} className="nav-icon" />
+                <span>{label}</span>
+              </NavLink>
+            ))}
 
-          {user?.role === "SUPERADMIN" && (
+          {(user?.role === "SUPERADMIN" || user?.role === "LAB_ADMIN") && (
             <div className="nav-group">
               <span className="nav-group-title">Administration</span>
-              {adminLinks.map(([to, label, Icon]) => (
+              {user?.role === "SUPERADMIN" && (
                 <NavLink
-                  to={to}
-                  key={to}
+                  to="/admin/laboratories"
                   className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
                 >
-                  <Icon size={18} className="nav-icon" />
-                  <span>{label}</span>
+                  <Activity size={18} className="nav-icon" />
+                  <span>Laboratories</span>
                 </NavLink>
-              ))}
+              )}
+              <NavLink
+                to="/admin/users"
+                className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+              >
+                <Users size={18} className="nav-icon" />
+                <span>Users</span>
+              </NavLink>
+              <NavLink
+                to="/admin/tests"
+                className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+              >
+                <TestTube2 size={18} className="nav-icon" />
+                <span>Tests Catalog</span>
+              </NavLink>
             </div>
           )}
         </nav>

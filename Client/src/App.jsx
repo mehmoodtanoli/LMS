@@ -50,7 +50,7 @@ export default function App() {
 
           <Route path="/payments" element={<Payments />} />
 
-          {/* SUPERADMIN routes */}
+          {/* SUPERADMIN only routes */}
           <Route element={<RequireRole role="SUPERADMIN" />}>
             <Route path="/admin/laboratories" element={<Laboratories />} />
             <Route
@@ -65,7 +65,10 @@ export default function App() {
               path="/admin/laboratories/:id/edit"
               element={<LaboratoryForm />}
             />
+          </Route>
 
+          {/* Admin routes accessible by SUPERADMIN and LAB_ADMIN */}
+          <Route element={<RequireRole roles={["SUPERADMIN", "LAB_ADMIN"]} />}>
             <Route path="/admin/users" element={<Users />} />
             <Route path="/admin/users/new" element={<UserForm />} />
             <Route path="/admin/users/:id" element={<UserDetail />} />

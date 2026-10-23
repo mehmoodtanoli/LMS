@@ -21,6 +21,15 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
 
   const user = await prisma.user.findUnique({
     where: { id: decoded.userId },
+    include: {
+      laboratory: {
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+        },
+      },
+    },
   });
 
   if (!user) {
@@ -31,11 +40,24 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
     throw new ApiError(403, "This account has been deactivated.");
   }
 
+  // Reject requests when the laboratory is inactive (SUPERADMIN is exempt) (Fixes A9)
+  if (
+    user.role !== "SUPERADMIN" &&
+    user.laboratory &&
+    !user.laboratory.isActive
+  ) {
+    throw new ApiError(
+      403,
+      "This laboratory has been suspended or deactivated. Please contact administration."
+    );
+  }
+
   req.user = {
     id: user.id,
     email: user.email,
     role: user.role,
     laboratoryId: user.laboratoryId,
+    laboratory: user.laboratory,
   };
 
   next();

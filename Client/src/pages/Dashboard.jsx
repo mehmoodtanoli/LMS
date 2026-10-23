@@ -94,9 +94,14 @@ export default function Dashboard() {
     (r) => !r.status || r.status === "PENDING"
   ).length || data.orders.filter((o) => o.status === "PENDING" || o.status === "IN_PROGRESS").length || 6;
 
-  const unpaidOrders = data.payments.filter(
-    (p) => p.status === "UNPAID" || p.status === "PARTIALLY_PAID"
-  ).length || Math.max(1, data.orders.length - data.payments.filter(p => p.status === "PAID").length) || 7;
+  const paidOrderIds = new Set(
+    data.payments
+      .filter((p) => p.status === "PAID")
+      .map((p) => p.orderId)
+  );
+  const unpaidOrders = data.orders.filter(
+    (o) => !paidOrderIds.has(o.id) && o.status !== "CANCELLED"
+  ).length;
 
   const patientsToday = data.patients.filter((p) => isToday(p.createdAt)).length;
   const ordersToday = data.orders.filter((o) => isToday(o.createdAt)).length;

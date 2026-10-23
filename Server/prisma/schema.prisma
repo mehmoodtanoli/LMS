@@ -45,9 +45,11 @@ model Patient {
   fullName     String?
   phone        String?
   age          Int
+  ageUnit      AgeUnit     @default(YEARS)
   gender       Gender
   address      String?
-  cnic         String
+  cnic         String?
+  isDeleted    Boolean     @default(false)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   laboratory   Laboratory  @relation(fields: [laboratoryId], references: [id])
@@ -64,6 +66,7 @@ model TestDefinition {
   code             String
   name             String
   description      String?
+  price            Decimal           @default(0) @db.Decimal(12, 2)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   orderedTestItems OrderedTestItem[]
@@ -115,6 +118,7 @@ model OrderedTestItem {
   id               String         @id @default(uuid()) @db.Uuid
   orderId          String         @db.Uuid
   testDefinitionId String         @db.Uuid
+  price            Decimal        @default(0) @db.Decimal(12, 2)
   notes            String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
@@ -137,6 +141,8 @@ model Result {
   referenceRange    String?
   interpretation    String?
   notes             String?
+  finalizedAt       DateTime?
+  finalizedById     String?         @db.Uuid
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   orderedTestItem   OrderedTestItem @relation(fields: [orderedTestItemId], references: [id])
@@ -160,6 +166,7 @@ model Report {
   previousReport   Report?      @relation("ReportHistory", fields: [previousReportId], references: [id])
   amendedReports   Report[]     @relation("ReportHistory")
 
+  @@unique([orderId, version])
   @@index([laboratoryId, orderId])
   @@map("reports")
 }
@@ -181,9 +188,31 @@ model Payment {
   @@map("payments")
 }
 
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  laboratoryId String?  @db.Uuid
+  userId       String?  @db.Uuid
+  action       String
+  entity       String
+  entityId     String
+  details      Json?
+  createdAt    DateTime @default(now())
+
+  @@index([laboratoryId, entity])
+  @@index([entityId])
+  @@map("audit_logs")
+}
+
 enum UserRole {
   SUPERADMIN
   LAB_ADMIN
+  LAB_TECH
+}
+
+enum AgeUnit {
+  YEARS
+  MONTHS
+  DAYS
 }
 
 enum Gender {
@@ -210,6 +239,7 @@ enum ReportStatus {
   DRAFT
   FINAL
   AMENDED
+  SUPERSEDED
 }
 
 enum PaymentStatus {

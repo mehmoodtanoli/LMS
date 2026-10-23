@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { adminUsersApi, laboratoriesApi } from "../api/resources";
 import { apiError } from "../api/client";
 import { Empty, ErrorMessage, Loading, date } from "../components/Common";
+import { useAuth } from "../auth/AuthContext";
 import {
   Users as UsersIcon,
   Plus,
@@ -158,6 +159,7 @@ const blank = { email: "", password: "", role: "LAB_ADMIN", laboratoryId: "" };
 export function UserForm() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user: authUser } = useAuth();
   const [form, setForm] = useState(blank);
   const [laboratories, setLaboratories] = useState([]);
   const [error, setError] = useState("");
@@ -193,9 +195,15 @@ export function UserForm() {
 
     const data = {
       email: form.email.trim(),
-      role: form.role,
-      laboratoryId: form.role === "LAB_ADMIN" ? form.laboratoryId : undefined,
     };
+
+    // Only send role and laboratoryId when creating or when actor is SUPERADMIN (Fixes A8)
+    if (!id || authUser?.role === "SUPERADMIN") {
+      data.role = form.role;
+      if (form.role === "LAB_ADMIN" || form.role === "LAB_TECH") {
+        data.laboratoryId = form.laboratoryId || undefined;
+      }
+    }
 
     if (!id || form.password) data.password = form.password;
 
@@ -274,6 +282,7 @@ export function UserForm() {
                   onChange={(e) => setForm({ ...form, role: e.target.value })}
                 >
                   <option value="LAB_ADMIN">Lab Administrator</option>
+                  <option value="LAB_TECH">Lab Technician</option>
                   <option value="SUPERADMIN">Super Administrator</option>
                 </select>
                 <ChevronDown size={16} className="select-arrow" />

@@ -1,12 +1,14 @@
 import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
+import {
+  assertUuid,
+  parsePagination,
+  normalizeString,
+  normalizeOptionalString,
+} from "../utils/validators.js";
+import { recordAuditLog } from "../utils/audit.js";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VALID_PAYMENT_STATUSES = ["UNPAID", "PARTIALLY_PAID", "PAID", "REFUNDED"];
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
 
 const PAYMENT_SELECT = {
   id: true,
@@ -36,40 +38,42 @@ const PAYMENT_SELECT = {
           name: true,
           fullName: true,
           cnic: true,
+          phone: true,
+          age: true,
+          ageUnit: true,
+          gender: true,
+          address: true,
           laboratoryId: true,
+        },
+      },
+      orderedTestItems: {
+        select: {
+          id: true,
+          price: true,
+          testDefinition: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              price: true,
+            },
+          },
         },
       },
     },
   },
 };
 
-function normalizeString(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeOptionalString(value) {
-  const normalizedValue = normalizeString(value);
-  return normalizedValue ? normalizedValue : undefined;
-}
-
-function assertUuid(value, fieldName) {
-  if (!UUID_PATTERN.test(value)) {
-    throw new ApiError(400, `${fieldName} must be a valid UUID.`, {
-      field: fieldName,
-    });
-  }
-}
-
 function assertLabAdminScope(user) {
   if (user.role === "SUPERADMIN") {
     return null;
   }
 
-  if (user.role === "LAB_ADMIN") {
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
     if (!user.laboratoryId) {
       throw new ApiError(
         403,
-        "LAB_ADMIN users must be assigned to a laboratory before managing payments.",
+        "User must be assigned to a laboratory before managing payments."
       );
     }
 
@@ -89,35 +93,11 @@ function buildListWhere(user) {
   return {};
 }
 
-function parsePagination(query) {
-  const pageValue = query?.page ?? DEFAULT_PAGE;
-  const limitValue = query?.limit ?? DEFAULT_LIMIT;
-  const page = Number(pageValue);
-  const limit = Number(limitValue);
-
-  if (!Number.isInteger(page) || page < 1) {
-    throw new ApiError(400, "page must be a positive integer.", {
-      field: "page",
-    });
-  }
-
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw new ApiError(400, "limit must be a positive integer.", {
-      field: "limit",
-    });
-  }
-
-  return {
-    page,
-    limit: Math.min(limit, MAX_LIMIT),
-  };
-}
-
 function normalizePaymentStatus(value) {
   const normalizedValue = normalizeString(value).toUpperCase();
 
   if (!normalizedValue) {
-    return undefined;
+    return "PAID"; // Default to PAID (Fixes A3)
   }
 
   if (!VALID_PAYMENT_STATUSES.includes(normalizedValue)) {
@@ -131,29 +111,19 @@ function normalizePaymentStatus(value) {
 }
 
 function normalizePaymentAmount(value) {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value === null) {
+  if (value === undefined || value === null) {
     throw new ApiError(400, "amount is required.", { field: "amount" });
   }
 
   let numericValue;
-  let normalizedValue;
-
   if (typeof value === "string") {
-    const trimmedValue = value.trim();
-
-    if (!trimmedValue) {
+    const trimmed = value.trim();
+    if (!trimmed) {
       throw new ApiError(400, "amount is required.", { field: "amount" });
     }
-
-    numericValue = Number(trimmedValue);
-    normalizedValue = trimmedValue;
+    numericValue = Number(trimmed);
   } else if (typeof value === "number") {
     numericValue = value;
-    normalizedValue = value;
   } else {
     throw new ApiError(400, "amount must be a positive number.", {
       field: "amount",
@@ -166,8 +136,9 @@ function normalizePaymentAmount(value) {
     });
   }
 
-  return normalizedValue;
+  return numericValue;
 }
+
 function buildPaymentData(data) {
   const paymentData = {};
 
@@ -175,38 +146,28 @@ function buildPaymentData(data) {
     paymentData.amount = normalizePaymentAmount(data.amount);
   }
 
-  if (data.status !== undefined) {
-    paymentData.status = normalizePaymentStatus(data.status);
-  }
+  // If status is omitted, server sets PAID (Fixes A3)
+  paymentData.status = data.status ? normalizePaymentStatus(data.status) : "PAID";
 
   if (data.paidAt !== undefined) {
     if (data.paidAt === null || data.paidAt === "") {
-      paymentData.paidAt = null;
+      paymentData.paidAt = new Date();
     } else {
       const paidAt = new Date(data.paidAt);
-
       if (Number.isNaN(paidAt.getTime())) {
         throw new ApiError(400, "paidAt must be a valid date when provided.", {
           field: "paidAt",
         });
       }
-
       paymentData.paidAt = paidAt;
     }
+  } else {
+    paymentData.paidAt = new Date();
   }
 
   if (data.notes !== undefined) {
     const notes = normalizeOptionalString(data.notes);
-
-    if (data.notes !== null && data.notes !== undefined && !notes) {
-      throw new ApiError(400, "notes cannot be empty if provided.", {
-        field: "notes",
-      });
-    }
-
-    if (notes !== undefined) {
-      paymentData.notes = notes;
-    }
+    paymentData.notes = notes ?? null;
   }
 
   return paymentData;
@@ -239,7 +200,34 @@ async function findAccessibleTestOrder({ user, orderId }) {
           name: true,
           fullName: true,
           cnic: true,
+          phone: true,
+          age: true,
+          ageUnit: true,
+          gender: true,
+          address: true,
           laboratoryId: true,
+        },
+      },
+      orderedTestItems: {
+        select: {
+          id: true,
+          price: true,
+          testDefinition: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              price: true,
+            },
+          },
+        },
+      },
+      payments: {
+        select: {
+          id: true,
+          amount: true,
+          status: true,
+          paidAt: true,
         },
       },
     },
@@ -250,6 +238,48 @@ async function findAccessibleTestOrder({ user, orderId }) {
   }
 
   return order;
+}
+
+async function getOrderBilling({ user, orderId }) {
+  const order = await findAccessibleTestOrder({ user, orderId });
+
+  let totalAmount = 0;
+  const items = (order.orderedTestItems || []).map((item) => {
+    const itemPrice = Number(item.price || item.testDefinition?.price || 0);
+    totalAmount += itemPrice;
+    return {
+      id: item.id,
+      testCode: item.testDefinition?.code,
+      testName: item.testDefinition?.name,
+      price: itemPrice,
+    };
+  });
+
+  let paidAmount = 0;
+  (order.payments || []).forEach((p) => {
+    if (p.status === "PAID") {
+      paidAmount += Number(p.amount || 0);
+    }
+  });
+
+  const remainingAmount = Math.max(0, totalAmount - paidAmount);
+  let status = "UNPAID";
+  if (paidAmount >= totalAmount && totalAmount > 0) {
+    status = "PAID";
+  } else if (paidAmount > 0) {
+    status = "PARTIALLY_PAID";
+  }
+
+  return {
+    orderId: order.id,
+    patient: order.patient,
+    totalAmount,
+    paidAmount,
+    remainingAmount,
+    status,
+    items,
+    payments: order.payments,
+  };
 }
 
 async function createPayment({ user, data }) {
@@ -265,30 +295,116 @@ async function createPayment({ user, data }) {
     throw new ApiError(400, "amount is required.", { field: "amount" });
   }
 
-  const order = await findAccessibleTestOrder({ user, orderId });
+  const accessibleOrder = await findAccessibleTestOrder({ user, orderId });
 
   try {
-    return await prisma.payment.create({
-      data: {
-        laboratoryId: order.laboratoryId,
-        orderId,
-        ...paymentData,
-      },
-      select: PAYMENT_SELECT,
+    return await prisma.$transaction(async (tx) => {
+      // Re-fetch existing payments inside transaction to guarantee atomic balance check (Fixes M2)
+      const existingPayments = await tx.payment.findMany({
+        where: {
+          orderId,
+          status: "PAID",
+        },
+        select: {
+          amount: true,
+        },
+      });
+
+      let totalOrderAmount = 0;
+      accessibleOrder.orderedTestItems.forEach((item) => {
+        totalOrderAmount += Number(item.price || item.testDefinition?.price || 0);
+      });
+
+      const alreadyPaid = existingPayments.reduce(
+        (sum, p) => sum + Number(p.amount || 0),
+        0
+      );
+      const remainingBalance = Math.max(0, totalOrderAmount - alreadyPaid);
+
+      // Overpayment cap: check only if order has items with prices
+      if (totalOrderAmount > 0 && paymentData.amount > remainingBalance + 0.001) {
+        throw new ApiError(
+          400,
+          `Payment amount (Rs. ${paymentData.amount}) exceeds remaining balance of Rs. ${remainingBalance.toFixed(2)}.`,
+          {
+            remainingBalance,
+            totalOrderAmount,
+            alreadyPaid,
+          }
+        );
+      }
+
+      const payment = await tx.payment.create({
+        data: {
+          laboratoryId: accessibleOrder.laboratoryId,
+          orderId,
+          amount: paymentData.amount,
+          status: paymentData.status,
+          paidAt: paymentData.paidAt,
+          notes: paymentData.notes,
+        },
+        select: PAYMENT_SELECT,
+      });
+
+      await recordAuditLog({
+        laboratoryId: accessibleOrder.laboratoryId,
+        userId: user.id,
+        action: "PAYMENT_CREATED",
+        entity: "Payment",
+        entityId: payment.id,
+        details: {
+          orderId,
+          amount: paymentData.amount,
+          status: paymentData.status,
+        },
+      });
+
+      return payment;
     });
   } catch (error) {
     if (error?.code === "P2025") {
       throw new ApiError(404, "Payment not found.");
     }
-
     throw error;
   }
 }
 
 async function listPayments({ user, query }) {
-  const where = buildListWhere(user);
+  const accessibleWhere = buildListWhere(user);
   const { page, limit } = parsePagination(query);
   const skip = (page - 1) * limit;
+
+  const where = { ...accessibleWhere };
+
+  if (query?.status) {
+    const s = normalizeString(query.status).toUpperCase();
+    if (VALID_PAYMENT_STATUSES.includes(s)) {
+      where.status = s;
+    }
+  }
+
+  if (query?.orderId) {
+    assertUuid(query.orderId, "orderId");
+    where.orderId = query.orderId;
+  }
+
+  if (query?.search) {
+    const s = query.search.trim();
+    where.OR = [
+      { notes: { contains: s, mode: "insensitive" } },
+      {
+        order: {
+          patient: {
+            OR: [
+              { name: { contains: s, mode: "insensitive" } },
+              { fullName: { contains: s, mode: "insensitive" } },
+              { cnic: { contains: s } },
+            ],
+          },
+        },
+      },
+    ];
+  }
 
   const [payments, total] = await prisma.$transaction([
     prisma.payment.findMany({
@@ -332,4 +448,9 @@ async function getPaymentById({ user, paymentId }) {
   return payment;
 }
 
-export { createPayment, listPayments, getPaymentById };
+export {
+  createPayment,
+  listPayments,
+  getPaymentById,
+  getOrderBilling,
+};

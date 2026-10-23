@@ -2,8 +2,18 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ordersApi, resultsApi } from "../api/resources";
 import { apiError } from "../api/client";
-import { Loading, ErrorMessage, Empty } from "../components/Common";
-import { Save, AlertTriangle, CheckCircle2, ChevronDown } from "lucide-react";
+import { Loading, ErrorMessage, Empty, patientName } from "../components/Common";
+import { useAuth } from "../auth/AuthContext";
+import {
+  Save,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  Lock,
+  Edit3,
+  X,
+  FileCheck,
+} from "lucide-react";
 
 // Standard laboratory panel default parameters if DB test parameters are empty
 const DEFAULT_PARAMETERS = {
@@ -70,7 +80,6 @@ function computeFlag(value, refRange) {
   const num = parseFloat(value);
   if (isNaN(num)) return null;
 
-  // Check if range is like "13.0 - 17.0" or "40 - 50"
   const rangeMatch = refRange.match(/([\d.]+)\s*-\s*([\d.]+)/);
   if (rangeMatch) {
     const low = parseFloat(rangeMatch[1]);
@@ -80,7 +89,6 @@ function computeFlag(value, refRange) {
     return "Normal";
   }
 
-  // Check if range is like "< 500" or "> 90"
   const lessMatch = refRange.match(/<\s*([\d.]+)/);
   if (lessMatch) {
     const limit = parseFloat(lessMatch[1]);
@@ -92,6 +100,9 @@ function computeFlag(value, refRange) {
 }
 
 export default function Results() {
+  const { user } = useAuth();
+  const canFinalize = user?.role === "SUPERADMIN" || user?.role === "LAB_ADMIN";
+
   const [searchParams] = useSearchParams();
   const requestedOrderId = searchParams.get("orderId");
 
@@ -105,6 +116,11 @@ export default function Results() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // Confirmation & Amendment Modals (Fixes A6)
+  const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
+  const [amendModalOpen, setAmendModalOpen] = useState(false);
+  const [amendmentReason, setAmendmentReason] = useState("");
 
   const inputRefs = useRef([]);
 
@@ -148,6 +164,8 @@ export default function Results() {
     return orderItems[selectedItemIndex] || orderItems[0] || null;
   }, [orderItems, selectedItemIndex]);
 
+  const isFinalized = activeItem?.result?.status === "FINALIZED";
+
   // Parameters for the active item
   const parameters = useMemo(() => {
     if (!activeItem) return [];
@@ -161,7 +179,6 @@ export default function Results() {
       }));
     }
 
-    // Fallback to default realistic clinical templates based on test code
     const code = (activeItem.testDefinition?.code || "").toUpperCase();
     const name = (activeItem.testDefinition?.name || "").toUpperCase();
     if (code.includes("PT") || code.includes("INR") || name.includes("PROTHROMBIN")) return DEFAULT_PARAMETERS.PT;
@@ -180,7 +197,6 @@ export default function Results() {
     if (existingResult?.value && typeof existingResult.value === "object") {
       setParamValues(existingResult.value);
     } else {
-      // Clear or preset empty
       setParamValues({});
     }
     setSuccessMsg("");
@@ -194,7 +210,6 @@ export default function Results() {
     }));
   };
 
-  // Keyboard navigation between parameter inputs (Tab or Enter)
   const handleKeyDown = (e, index) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -211,9 +226,8 @@ export default function Results() {
   ).length;
   const emptyCount = Math.max(0, parameters.length - filledCount);
 
-  // Save Results handler
-  const handleSaveResults = async (e) => {
-    e.preventDefault();
+  // Save Results (Draft/Completed) handler
+  const handleSaveResults = async (targetStatus = "COMPLETED") => {
     if (!activeItem) return;
 
     setError("");
@@ -221,7 +235,6 @@ export default function Results() {
     setSaving(true);
 
     try {
-      // Clean up values
       const cleanedValues = {};
       parameters.forEach((p) => {
         cleanedValues[p.name] = (paramValues[p.name] || "").toString().trim();
@@ -229,26 +242,60 @@ export default function Results() {
 
       const existingResult = activeItem.result;
       if (existingResult?.id) {
-        // Update result
         await resultsApi.update(existingResult.id, {
           value: cleanedValues,
-          status: "COMPLETED",
+          status: targetStatus,
         });
       } else {
-        // Create result
         await resultsApi.create({
           orderedTestItemId: activeItem.id,
           value: cleanedValues,
-          status: "COMPLETED",
+          status: targetStatus,
         });
       }
 
-      // Also update order status to IN_PROGRESS or COMPLETED if needed
       await ordersApi.update(selectedOrder.id, {
         status: "IN_PROGRESS",
       });
 
-      setSuccessMsg("Results saved successfully!");
+      setSuccessMsg(
+        targetStatus === "FINALIZED"
+          ? "Result finalized successfully!"
+          : "Results saved successfully!"
+      );
+      setConfirmFinalizeOpen(false);
+      loadData();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Amend Result handler (Fixes A6)
+  const handleAmendSubmit = async (e) => {
+    e.preventDefault();
+    if (!activeItem?.result?.id || !amendmentReason.trim()) return;
+
+    setError("");
+    setSuccessMsg("");
+    setSaving(true);
+
+    try {
+      const cleanedValues = {};
+      parameters.forEach((p) => {
+        cleanedValues[p.name] = (paramValues[p.name] || "").toString().trim();
+      });
+
+      await resultsApi.amend(activeItem.result.id, {
+        value: cleanedValues,
+        amendmentReason: amendmentReason.trim(),
+        status: "FINALIZED",
+      });
+
+      setSuccessMsg("Result amended and updated successfully!");
+      setAmendModalOpen(false);
+      setAmendmentReason("");
       loadData();
     } catch (err) {
       setError(apiError(err));
@@ -259,8 +306,8 @@ export default function Results() {
 
   // Patient info for header banner
   const patient = selectedOrder?.patient;
-  const pName = `${patient?.name || ""} ${patient?.fullName || ""}`.trim() || "Muhammad Ali Khan";
-  const cnic = patient?.cnic || "35201-1234567-1";
+  const pName = patient ? patientName(patient) : "Patient";
+  const cnic = patient?.cnic || "—";
   const initials = getInitials(pName);
   const orderNumStr = selectedOrder
     ? `ORD-${selectedOrder.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`
@@ -270,12 +317,11 @@ export default function Results() {
 
   return (
     <div className="results-page">
-      {/* Header matching Image 4 */}
       <header className="page-header-simple">
         <div>
           <h1 className="page-title">Result Entry</h1>
           <p className="page-subtitle">
-            Enter test values quickly — use Tab or Enter to move between fields
+            Enter test investigation values quickly — use Tab or Enter to move between fields
           </p>
         </div>
       </header>
@@ -294,7 +340,6 @@ export default function Results() {
         <div className="result-entry-container">
           {/* Top Controls: Select Order & Select Test */}
           <div className="result-controls-card">
-            {/* Order Select */}
             <div className="order-picker-group">
               <label className="control-label">Select Order</label>
               <div className="select-wrapper-clean">
@@ -305,13 +350,12 @@ export default function Results() {
                     setSelectedItemIndex(0);
                   }}
                 >
-                  {orders.map((o, idx) => {
-                    const code = `ORD-${o.id.replace(/-/g, "").slice(0, 3).toUpperCase() || String(idx + 1).padStart(3, "0")}`;
-                    const name = `${o.patient?.name || ""} ${o.patient?.fullName || ""}`.trim() || "Patient";
-                    const pendingCount = (o.orderedTestItems || []).length || 1;
+                  {orders.map((o) => {
+                    const name = patientName(o.patient);
+                    const code = `ORD-${o.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`;
                     return (
                       <option key={o.id} value={o.id}>
-                        {code} — {name} ({pendingCount} pending)
+                        {code} · {name} ({o.orderedTestItems?.length || 1} test)
                       </option>
                     );
                   })}
@@ -320,76 +364,118 @@ export default function Results() {
               </div>
             </div>
 
-            {/* Test Selector Pills */}
-            <div className="test-picker-group">
-              <label className="control-label">Select Test</label>
-              <div className="test-pills-row">
-                {orderItems.length > 0 ? (
-                  orderItems.map((item, idx) => {
-                    const code = (
-                      item.testDefinition?.code || `TEST-${idx + 1}`
-                    ).toUpperCase();
-                    const isSelected = selectedItemIndex === idx;
-                    return (
-                      <button
-                        key={item.id || idx}
-                        type="button"
-                        className={`test-picker-pill ${
-                          isSelected ? "active" : ""
-                        }`}
-                        onClick={() => setSelectedItemIndex(idx)}
-                      >
-                        {code.length > 7 ? code.slice(0, 6) + "…" : code}
-                      </button>
-                    );
-                  })
-                ) : (
-                  <button type="button" className="test-picker-pill active">
-                    CBC
-                  </button>
-                )}
+            {/* Test item pills if order has multiple tests */}
+            {orderItems.length > 1 && (
+              <div className="test-items-pill-row">
+                {orderItems.map((item, idx) => {
+                  const testCode = item.testDefinition?.code || `Test ${idx + 1}`;
+                  const isFinal = item.result?.status === "FINALIZED";
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`test-item-pill ${
+                        selectedItemIndex === idx ? "active" : ""
+                      }`}
+                      onClick={() => setSelectedItemIndex(idx)}
+                    >
+                      <span>{testCode}</span>
+                      {isFinal && <Lock size={12} style={{ marginLeft: "4px" }} />}
+                    </button>
+                  );
+                })}
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Patient Banner Card matching Image 4 */}
-          <div className="patient-summary-banner">
-            <div className="banner-patient-side">
-              <span className="patient-avatar-circle-lg">{initials}</span>
-              <div className="banner-patient-text">
-                <h2 className="banner-name">{pName}</h2>
-                <span className="banner-sub">
-                  {cnic} · {orderNumStr}
+          {/* Patient Demographics Bar */}
+          <div className="patient-banner-clean">
+            <div className="patient-banner-left">
+              <div className="patient-avatar-box">
+                <span className="patient-avatar-circle">{initials}</span>
+                <div className="patient-info">
+                  <span className="patient-name">{pName}</span>
+                  <span className="patient-cnic">CNIC: {cnic}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="patient-banner-right">
+              <div className="meta-item">
+                <span className="meta-lbl">Order Ref</span>
+                <span className="meta-val">{orderNumStr}</span>
+              </div>
+              <div className="meta-item">
+                <span className="meta-lbl">Result Status</span>
+                <span
+                  className={`status-pill ${
+                    isFinalized
+                      ? "status-badge-completed"
+                      : activeItem?.result?.status === "COMPLETED"
+                      ? "status-badge-inprogress"
+                      : "status-badge-pending"
+                  }`}
+                >
+                  {activeItem?.result?.status || "PENDING"}
                 </span>
               </div>
             </div>
-
-            <div className="banner-test-side">
-              <span className="banner-test-name">
-                {activeItem?.testDefinition?.name || "Complete Blood Count"}
-              </span>
-              <span className="status-pill status-badge-inprogress">
-                In Progress
-              </span>
-            </div>
           </div>
 
-          {/* Parameters Table matching Image 4 */}
-          <form onSubmit={handleSaveResults} className="parameters-form">
+          {/* Finalized Notice */}
+          {isFinalized && (
+            <div
+              style={{
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                color: "#166534",
+                borderRadius: "8px",
+                padding: "12px 16px",
+                marginBottom: "16px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <Lock size={16} />
+                <span style={{ fontSize: "0.88rem", fontWeight: 600 }}>
+                  This result has been FINALIZED and verified for reporting.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setAmendModalOpen(true)}
+                style={{ fontSize: "0.82rem", height: "32px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+              >
+                <Edit3 size={14} />
+                <span>Amend Result</span>
+              </button>
+            </div>
+          )}
+
+          {/* Result Entry Form */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSaveResults("COMPLETED");
+            }}
+            className="results-form"
+          >
             <div className="table-card">
-              <table className="parameters-table">
+              <table className="clean-table results-entry-table">
                 <thead>
                   <tr>
-                    <th style={{ width: "48px" }}>#</th>
-                    <th style={{ width: "320px" }}>Parameter</th>
-                    <th style={{ width: "200px" }}>Result</th>
-                    <th style={{ width: "120px" }}>Unit</th>
-                    <th style={{ width: "160px" }}>Normal Range</th>
-                    <th style={{ width: "90px" }}>Flag</th>
+                    <th style={{ width: "40px" }}>#</th>
+                    <th style={{ width: "32%" }}>Test Investigation / Parameter</th>
+                    <th style={{ width: "24%" }}>Observed Value</th>
+                    <th style={{ width: "12%" }}>Unit</th>
+                    <th style={{ width: "20%" }}>Reference Range</th>
+                    <th style={{ width: "12%" }}>Flag</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Category divider header */}
                   <tr className="panel-divider-row">
                     <td colSpan={6}>{panelName}</td>
                   </tr>
@@ -406,6 +492,7 @@ export default function Results() {
                           <input
                             ref={(el) => (inputRefs.current[index] = el)}
                             type="text"
+                            disabled={isFinalized}
                             className="param-input"
                             placeholder="—"
                             value={val}
@@ -437,16 +524,15 @@ export default function Results() {
               </table>
             </div>
 
-            {/* Bottom Floating Action Bar matching Image 4 */}
+            {/* Bottom Floating Action Bar */}
             <div className="results-action-bar">
               <div className="bar-count-info">
                 <span>
-                  <strong>{filledCount}</strong> / {parameters.length} values
-                  entered
+                  <strong>{filledCount}</strong> / {parameters.length} values entered
                 </span>
               </div>
 
-              <div className="bar-submit-side">
+              <div className="bar-submit-side" style={{ display: "flex", gap: "12px", alignItems: "center" }}>
                 {emptyCount > 0 ? (
                   <div className="empty-warning-badge">
                     <AlertTriangle size={14} />
@@ -459,17 +545,152 @@ export default function Results() {
                   </div>
                 )}
 
+                {/* Save Draft Button */}
                 <button
                   type="submit"
-                  className="btn-primary-action"
-                  disabled={saving}
+                  className="btn-cancel"
+                  disabled={saving || isFinalized}
+                  style={{ height: "38px" }}
                 >
-                  <Save size={16} />
-                  <span>{saving ? "Saving…" : "Save Results"}</span>
+                  <Save size={15} />
+                  <span>{saving ? "Saving…" : "Save Draft"}</span>
                 </button>
+
+                {/* Finalize Button - Hidden for LAB_TECH, requires non-empty values (Fixes A6) */}
+                {canFinalize && !isFinalized && (
+                  <button
+                    type="button"
+                    className="btn-primary-action"
+                    disabled={saving || emptyCount > 0}
+                    onClick={() => setConfirmFinalizeOpen(true)}
+                    title={
+                      emptyCount > 0
+                        ? "Enter all observation values before finalizing"
+                        : "Finalize and verify this test result"
+                    }
+                  >
+                    <FileCheck size={16} />
+                    <span>Finalize Results</span>
+                  </button>
+                )}
               </div>
             </div>
           </form>
+
+          {/* Confirm Finalize Modal */}
+          {confirmFinalizeOpen && (
+            <div
+              className="modal-backdrop"
+              onClick={() => setConfirmFinalizeOpen(false)}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div
+                className="modal-card-clean"
+                onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: "460px" }}
+              >
+                <div className="modal-header-clean">
+                  <h2>Confirm Finalization</h2>
+                  <button
+                    type="button"
+                    className="modal-close-btn"
+                    onClick={() => setConfirmFinalizeOpen(false)}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div style={{ padding: "12px 0 20px" }}>
+                  <p style={{ margin: "0 0 10px", color: "#334155", fontSize: "0.92rem", lineHeight: 1.5 }}>
+                    Are you sure you want to finalize results for <strong>{panelName}</strong>?
+                  </p>
+                  <p style={{ margin: 0, color: "#64748b", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                    Once finalized, these verified values will be locked and available for clinical diagnostic reports. Any subsequent correction will require an official audit amendment.
+                  </p>
+                </div>
+                <div className="modal-actions-clean">
+                  <button
+                    type="button"
+                    className="btn-cancel"
+                    onClick={() => setConfirmFinalizeOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary-action"
+                    disabled={saving}
+                    onClick={() => handleSaveResults("FINALIZED")}
+                  >
+                    {saving ? "Finalizing…" : "Confirm & Finalize"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Amend Result Modal (Fixes A6) */}
+          {amendModalOpen && (
+            <div
+              className="modal-backdrop"
+              onClick={() => setAmendModalOpen(false)}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div
+                className="modal-card-clean"
+                onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: "520px" }}
+              >
+                <div className="modal-header-clean">
+                  <h2>Amend Finalized Result</h2>
+                  <button
+                    type="button"
+                    className="modal-close-btn"
+                    onClick={() => setAmendModalOpen(false)}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAmendSubmit} className="modal-form-clean">
+                  <p style={{ color: "#475569", fontSize: "0.88rem", margin: "0 0 14px", lineHeight: 1.5 }}>
+                    Please provide an audit reason for amending this finalized medical record:
+                  </p>
+
+                  <div className="form-group-clean">
+                    <label>
+                      Amendment Reason <span className="required-star">*</span>
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      placeholder="e.g. Corrected typo in Platelet Count per pathologist review"
+                      value={amendmentReason}
+                      onChange={(e) => setAmendmentReason(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="modal-actions-clean">
+                    <button
+                      type="button"
+                      className="btn-cancel"
+                      onClick={() => setAmendModalOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn-primary-action"
+                      disabled={saving || !amendmentReason.trim()}
+                    >
+                      {saving ? "Saving Amendment…" : "Submit Amendment"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <Empty>No orders available for result entry.</Empty>

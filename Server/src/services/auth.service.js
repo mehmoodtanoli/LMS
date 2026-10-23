@@ -2,11 +2,15 @@ import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
 import { hashPassword, comparePassword } from "../utils/password.js";
 import { signToken } from "../utils/token.js";
+import { assertUuid, EMAIL_PATTERN, normalizeString } from "../utils/validators.js";
+import { recordAuditLog } from "../utils/audit.js";
 
-const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN"];
+const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN", "LAB_TECH"];
 const PUBLIC_REGISTRATION_ROLE = "LAB_ADMIN";
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Dummy bcrypt hash to equalize response timing when user is not found (Fixes S1)
+const DUMMY_BCRYPT_HASH =
+  "$2a$12$e80yq9gq5wY4aV7Q/3PzCO7g1U0m7G77nS4U70ZgZ.JkP7Yv1fW2u";
 
 function sanitizeUser(user) {
   if (!user) {
@@ -17,49 +21,51 @@ function sanitizeUser(user) {
   return safeUser;
 }
 
+function validatePasswordStrength(password, fieldName = "password") {
+  if (!password || typeof password !== "string" || password.length < 6) {
+    throw new ApiError(400, `${fieldName} must be at least 6 characters long.`, {
+      field: fieldName,
+    });
+  }
+
+  if (password.length > 128) {
+    throw new ApiError(400, `${fieldName} cannot exceed 128 characters.`, {
+      field: fieldName,
+    });
+  }
+}
+
 async function registerUser({ actor, email, password, laboratoryId = null }) {
   if (!actor || actor.role !== "SUPERADMIN") {
     throw new ApiError(
       403,
-      "Only SUPERADMIN users can register new laboratory accounts.",
+      "Only SUPERADMIN users can register new laboratory accounts."
     );
   }
 
-  const normalizedEmail =
-    typeof email === "string" ? email.trim().toLowerCase() : "";
+  const normalizedEmail = normalizeString(email).toLowerCase();
 
   if (!normalizedEmail) {
     throw new ApiError(400, "Email is required.", { field: "email" });
   }
 
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailPattern.test(normalizedEmail)) {
+  if (!EMAIL_PATTERN.test(normalizedEmail)) {
     throw new ApiError(400, "Please provide a valid email address.", {
       field: "email",
     });
   }
 
-  if (!password || password.length < 6) {
-    throw new ApiError(400, "Password must be at least 6 characters long.", {
-      field: "password",
-    });
-  }
+  validatePasswordStrength(password, "password");
 
   if (!laboratoryId) {
     throw new ApiError(
       400,
       "Laboratory ID is required for LAB_ADMIN registration.",
-      {
-        field: "laboratoryId",
-      },
+      { field: "laboratoryId" }
     );
   }
 
-  if (!UUID_PATTERN.test(laboratoryId)) {
-    throw new ApiError(400, "Laboratory ID must be a valid UUID.", {
-      field: "laboratoryId",
-    });
-  }
+  assertUuid(laboratoryId, "laboratoryId");
 
   const laboratory = await prisma.laboratory.findUnique({
     where: { id: laboratoryId },
@@ -92,12 +98,20 @@ async function registerUser({ actor, email, password, laboratoryId = null }) {
     },
   });
 
+  await recordAuditLog({
+    laboratoryId,
+    userId: actor.id,
+    action: "USER_REGISTERED",
+    entity: "User",
+    entityId: user.id,
+    details: { email: normalizedEmail, role: PUBLIC_REGISTRATION_ROLE },
+  });
+
   return sanitizeUser(user);
 }
 
 async function loginUser({ email, password }) {
-  const normalizedEmail =
-    typeof email === "string" ? email.trim().toLowerCase() : "";
+  const normalizedEmail = normalizeString(email).toLowerCase();
 
   if (!normalizedEmail || !password) {
     throw new ApiError(400, "Email and password are required.", {
@@ -107,9 +121,20 @@ async function loginUser({ email, password }) {
 
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
+    include: {
+      laboratory: {
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+        },
+      },
+    },
   });
 
   if (!user) {
+    // Timing attack mitigation: always run bcrypt comparison (Fixes S1)
+    await comparePassword(password, DUMMY_BCRYPT_HASH);
     throw new ApiError(401, "Invalid email or password.");
   }
 
@@ -123,10 +148,30 @@ async function loginUser({ email, password }) {
     throw new ApiError(403, "This account has been deactivated.");
   }
 
+  // Reject login when the laboratory is inactive (SUPERADMIN is exempt) (Fixes A9)
+  if (
+    user.role !== "SUPERADMIN" &&
+    user.laboratory &&
+    !user.laboratory.isActive
+  ) {
+    throw new ApiError(
+      403,
+      "This laboratory has been suspended or deactivated. Please contact administration."
+    );
+  }
+
   const token = signToken({
     userId: user.id,
     email: user.email,
     role: user.role,
+  });
+
+  await recordAuditLog({
+    laboratoryId: user.laboratoryId,
+    userId: user.id,
+    action: "USER_LOGIN",
+    entity: "User",
+    entityId: user.id,
   });
 
   return {
@@ -136,8 +181,19 @@ async function loginUser({ email, password }) {
 }
 
 async function getCurrentUser(userId) {
+  assertUuid(userId, "userId");
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
+    include: {
+      laboratory: {
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+        },
+      },
+    },
   });
 
   if (!user) {
@@ -147,4 +203,55 @@ async function getCurrentUser(userId) {
   return sanitizeUser(user);
 }
 
-export { VALID_ROLES, sanitizeUser, registerUser, loginUser, getCurrentUser };
+async function changeUserPassword({ userId, currentPassword, newPassword }) {
+  assertUuid(userId, "userId");
+
+  if (!currentPassword || !newPassword) {
+    throw new ApiError(400, "Current password and new password are required.", {
+      fields: ["currentPassword", "newPassword"],
+    });
+  }
+
+  validatePasswordStrength(newPassword, "newPassword");
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!user) {
+    throw new ApiError(404, "User not found.");
+  }
+
+  const isCurrentValid = await comparePassword(currentPassword, user.passwordHash);
+  if (!isCurrentValid) {
+    throw new ApiError(400, "Current password is incorrect.", {
+      field: "currentPassword",
+    });
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  });
+
+  await recordAuditLog({
+    laboratoryId: user.laboratoryId,
+    userId: user.id,
+    action: "PASSWORD_CHANGED",
+    entity: "User",
+    entityId: user.id,
+  });
+
+  return { message: "Password updated successfully." };
+}
+
+export {
+  VALID_ROLES,
+  sanitizeUser,
+  registerUser,
+  loginUser,
+  getCurrentUser,
+  changeUserPassword,
+};

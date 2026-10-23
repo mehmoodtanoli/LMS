@@ -1,25 +1,31 @@
 import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
+import {
+  assertUuid,
+  parsePagination,
+  normalizeString,
+  normalizeOptionalString,
+} from "../utils/validators.js";
+import { recordAuditLog } from "../utils/audit.js";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VALID_GENDERS = ["MALE", "FEMALE", "OTHER"];
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
-
-function normalizeString(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeOptionalString(value) {
-  const normalizedValue = normalizeString(value);
-  return normalizedValue ? normalizedValue : undefined;
-}
+const VALID_AGE_UNITS = ["YEARS", "MONTHS", "DAYS"];
 
 function normalizeGender(value) {
   const normalizedValue = normalizeString(value).toUpperCase();
   return normalizedValue || undefined;
+}
+
+function normalizeAgeUnit(value) {
+  if (!value) return "YEARS";
+  const normalizedValue = normalizeString(value).toUpperCase();
+  if (!VALID_AGE_UNITS.includes(normalizedValue)) {
+    throw new ApiError(400, "ageUnit must be one of YEARS, MONTHS, or DAYS.", {
+      field: "ageUnit",
+      validValues: VALID_AGE_UNITS,
+    });
+  }
+  return normalizedValue;
 }
 
 function normalizeInteger(value, fieldName) {
@@ -34,57 +40,26 @@ function normalizeInteger(value, fieldName) {
   return parsedValue;
 }
 
-function assertUuid(value, fieldName) {
-  if (!UUID_PATTERN.test(value)) {
-    throw new ApiError(400, `${fieldName} must be a valid UUID.`, {
-      field: fieldName,
-    });
-  }
-}
-
 function getScopedWhere(user) {
   if (user.role === "SUPERADMIN") {
-    return {};
+    return { isDeleted: false };
   }
 
-  if (user.role === "LAB_ADMIN") {
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
     if (!user.laboratoryId) {
       throw new ApiError(
         403,
-        "LAB_ADMIN users must be assigned to a laboratory before managing patients.",
+        "User must be assigned to a laboratory before accessing patient records."
       );
     }
 
     return {
       laboratoryId: user.laboratoryId,
+      isDeleted: false,
     };
   }
 
   throw new ApiError(403, "You are not authorized to access patient records.");
-}
-
-function parsePagination(query) {
-  const pageValue = query?.page ?? DEFAULT_PAGE;
-  const limitValue = query?.limit ?? DEFAULT_LIMIT;
-  const page = Number(pageValue);
-  const limit = Number(limitValue);
-
-  if (!Number.isInteger(page) || page < 1) {
-    throw new ApiError(400, "page must be a positive integer.", {
-      field: "page",
-    });
-  }
-
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw new ApiError(400, "limit must be a positive integer.", {
-      field: "limit",
-    });
-  }
-
-  return {
-    page,
-    limit: Math.min(limit, MAX_LIMIT),
-  };
 }
 
 function buildPatientData(data) {
@@ -100,36 +75,23 @@ function buildPatientData(data) {
     patientData.name = name;
   }
 
+  // Allow clearing optional fields (Fixes M6)
   if (data.fullName !== undefined) {
     const fullName = normalizeOptionalString(data.fullName);
-
-    if (data.fullName !== null && data.fullName !== undefined && !fullName) {
-      throw new ApiError(400, "fullName cannot be empty if provided.", {
-        field: "fullName",
-      });
-    }
-
-    if (fullName !== undefined) {
-      patientData.fullName = fullName;
-    }
+    patientData.fullName = fullName ?? null;
   }
 
   if (data.phone !== undefined) {
     const phone = normalizeOptionalString(data.phone);
-
-    if (data.phone !== null && data.phone !== undefined && !phone) {
-      throw new ApiError(400, "phone cannot be empty if provided.", {
-        field: "phone",
-      });
-    }
-
-    if (phone !== undefined) {
-      patientData.phone = phone;
-    }
+    patientData.phone = phone ?? null;
   }
 
   if (data.age !== undefined) {
     patientData.age = normalizeInteger(data.age, "age");
+  }
+
+  if (data.ageUnit !== undefined) {
+    patientData.ageUnit = normalizeAgeUnit(data.ageUnit);
   }
 
   if (data.gender !== undefined) {
@@ -147,26 +109,12 @@ function buildPatientData(data) {
 
   if (data.address !== undefined) {
     const address = normalizeOptionalString(data.address);
-
-    if (data.address !== null && data.address !== undefined && !address) {
-      throw new ApiError(400, "address cannot be empty if provided.", {
-        field: "address",
-      });
-    }
-
-    if (address !== undefined) {
-      patientData.address = address;
-    }
+    patientData.address = address ?? null;
   }
 
   if (data.cnic !== undefined) {
-    const cnic = normalizeString(data.cnic);
-
-    if (!cnic) {
-      throw new ApiError(400, "cnic is required.", { field: "cnic" });
-    }
-
-    patientData.cnic = cnic;
+    const cnic = normalizeOptionalString(data.cnic);
+    patientData.cnic = cnic ?? null;
   }
 
   return patientData;
@@ -174,18 +122,22 @@ function buildPatientData(data) {
 
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
-    throw new ApiError(409, "A patient with the same unique details already exists.", {
-      fields: error.meta?.target ?? null,
-    });
+    throw new ApiError(
+      409,
+      "A patient with the same unique details (CNIC) already exists in this laboratory.",
+      {
+        fields: error.meta?.target ?? null,
+      }
+    );
   }
 
   if (error?.code === "P2003") {
     throw new ApiError(
       409,
-      "This patient cannot be deleted because related records already exist.",
+      "This patient cannot be deleted because related medical records already exist.",
       {
         field: error.meta?.field_name ?? null,
-      },
+      }
     );
   }
 
@@ -196,15 +148,11 @@ function handlePrismaError(error) {
   throw error;
 }
 
-function getAccessiblePatientWhere(user) {
-  return getScopedWhere(user);
-}
-
 async function createPatient({ user, data }) {
   const scopedWhere = getScopedWhere(user);
   const patientData = buildPatientData(data);
 
-  if (user.role === "LAB_ADMIN") {
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
     patientData.laboratoryId = user.laboratoryId;
   } else {
     const laboratoryId = normalizeString(data.laboratoryId);
@@ -242,17 +190,23 @@ async function createPatient({ user, data }) {
     throw new ApiError(400, "gender is required.", { field: "gender" });
   }
 
-  if (!patientData.cnic) {
-    throw new ApiError(400, "cnic is required.", { field: "cnic" });
-  }
-
   try {
-    return await prisma.patient.create({
+    const patient = await prisma.patient.create({
       data: {
-        ...scopedWhere,
         ...patientData,
       },
     });
+
+    await recordAuditLog({
+      laboratoryId: patient.laboratoryId,
+      userId: user.id,
+      action: "PATIENT_CREATED",
+      entity: "Patient",
+      entityId: patient.id,
+      details: { name: patient.name, age: patient.age, gender: patient.gender },
+    });
+
+    return patient;
   } catch (error) {
     handlePrismaError(error);
   }
@@ -260,8 +214,25 @@ async function createPatient({ user, data }) {
 
 async function listPatients({ user, query }) {
   const { page, limit } = parsePagination(query);
-  const where = getAccessiblePatientWhere(user);
+  const baseWhere = getScopedWhere(user);
   const skip = (page - 1) * limit;
+
+  const where = { ...baseWhere };
+
+  // Server search across name, fullName, cnic, phone (Fixes A7)
+  if (query?.search) {
+    const s = query.search.trim();
+    where.AND = [
+      {
+        OR: [
+          { name: { contains: s, mode: "insensitive" } },
+          { fullName: { contains: s, mode: "insensitive" } },
+          { cnic: { contains: s } },
+          { phone: { contains: s } },
+        ],
+      },
+    ];
+  }
 
   const [patients, total] = await prisma.$transaction([
     prisma.patient.findMany({
@@ -292,7 +263,7 @@ async function getPatientById({ user, patientId }) {
   assertUuid(patientId, "id");
   const where = {
     id: patientId,
-    ...getAccessiblePatientWhere(user),
+    ...getScopedWhere(user),
   };
 
   const patient = await prisma.patient.findFirst({
@@ -310,7 +281,7 @@ async function updatePatient({ user, patientId, data }) {
   assertUuid(patientId, "id");
   const where = {
     id: patientId,
-    ...getAccessiblePatientWhere(user),
+    ...getScopedWhere(user),
   };
 
   const existingPatient = await prisma.patient.findFirst({ where });
@@ -326,10 +297,21 @@ async function updatePatient({ user, patientId, data }) {
   }
 
   try {
-    return await prisma.patient.update({
+    const updated = await prisma.patient.update({
       where: { id: patientId },
       data: patientData,
     });
+
+    await recordAuditLog({
+      laboratoryId: existingPatient.laboratoryId,
+      userId: user.id,
+      action: "PATIENT_UPDATED",
+      entity: "Patient",
+      entityId: patientId,
+      details: patientData,
+    });
+
+    return updated;
   } catch (error) {
     handlePrismaError(error);
   }
@@ -339,20 +321,51 @@ async function deletePatient({ user, patientId }) {
   assertUuid(patientId, "id");
   const where = {
     id: patientId,
-    ...getAccessiblePatientWhere(user),
+    ...getScopedWhere(user),
   };
 
   const patient = await prisma.patient.findFirst({
     where,
+    include: {
+      testOrders: {
+        select: { id: true },
+      },
+    },
   });
 
   if (!patient) {
     throw new ApiError(404, "Patient not found.");
   }
 
+  // Soft delete patient if order history exists to preserve audit integrity (Fixes A10)
+  if (patient.testOrders && patient.testOrders.length > 0) {
+    await prisma.patient.update({
+      where: { id: patientId },
+      data: { isDeleted: true },
+    });
+
+    await recordAuditLog({
+      laboratoryId: patient.laboratoryId,
+      userId: user.id,
+      action: "PATIENT_SOFT_DELETED",
+      entity: "Patient",
+      entityId: patientId,
+    });
+
+    return { ...patient, isDeleted: true };
+  }
+
   try {
     await prisma.patient.delete({
       where: { id: patientId },
+    });
+
+    await recordAuditLog({
+      laboratoryId: patient.laboratoryId,
+      userId: user.id,
+      action: "PATIENT_DELETED",
+      entity: "Patient",
+      entityId: patientId,
     });
   } catch (error) {
     handlePrismaError(error);
@@ -361,4 +374,10 @@ async function deletePatient({ user, patientId }) {
   return patient;
 }
 
-export { createPatient, listPatients, getPatientById, updatePatient, deletePatient };
+export {
+  createPatient,
+  listPatients,
+  getPatientById,
+  updatePatient,
+  deletePatient,
+};

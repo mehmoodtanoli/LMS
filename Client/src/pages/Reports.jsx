@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ordersApi, reportsApi } from "../api/resources";
 import { apiError } from "../api/client";
-import { Loading, ErrorMessage, Empty } from "../components/Common";
+import { Loading, ErrorMessage, Empty, patientName } from "../components/Common";
 import {
   Printer,
   Search,
@@ -244,18 +244,26 @@ export default function Reports() {
     let list = [];
 
     if (reports.length > 0) {
-      list = reports.map((rep, idx) => {
+      list = reports.map((rep) => {
         const order = rep.order || orders.find((o) => o.id === rep.orderId);
+        const pat = rep.snapshot?.patient || order?.patient;
+        const testItems = rep.snapshot?.orderedTestItems || order?.orderedTestItems || [];
+        const totalAmount = testItems.reduce(
+          (sum, item) => sum + Number(item.price || item.testDefinition?.price || 0),
+          0
+        );
         return {
           id: rep.id,
           orderId: rep.orderId,
           orderCode: `ORD-${(rep.orderId || rep.id).replace(/-/g, "").slice(0, 3).toUpperCase()}`,
-          patient: order?.patient,
-          testItems: order?.orderedTestItems || [],
-          amount: 1200 + (idx * 300),
+          patient: pat,
+          testItems,
+          amount: totalAmount > 0 ? totalAmount : 1200,
+          status: rep.status || "FINAL",
+          version: rep.version || 1,
           createdAt: rep.createdAt,
           title: rep.title || "Diagnostic Pathology Report",
-          results: order?.orderedTestItems?.map((i) => i.result) || [],
+          results: testItems.map((i) => i.result).filter(Boolean),
           notes: order?.notes || "",
         };
       });
@@ -266,10 +274,15 @@ export default function Reports() {
         orderCode: `ORD-${order.id.replace(/-/g, "").slice(0, 3).toUpperCase() || String(idx + 1).padStart(3, "0")}`,
         patient: order.patient,
         testItems: order.orderedTestItems || [],
-        amount: 800 + ((order.orderedTestItems?.length || 1) * 600),
+        amount: (order.orderedTestItems || []).reduce(
+          (sum, item) => sum + Number(item.price || item.testDefinition?.price || 0),
+          0
+        ) || 800 + ((order.orderedTestItems?.length || 1) * 600),
+        status: "FINAL",
+        version: 1,
         createdAt: order.createdAt,
         title: "Clinical Laboratory Report",
-        results: order.orderedTestItems?.map((i) => i.result) || [],
+        results: (order.orderedTestItems || []).map((i) => i.result).filter(Boolean),
         notes: order.notes || "",
       }));
     }
@@ -303,7 +316,7 @@ export default function Reports() {
 
   // Preview Report Metadata
   const patient = previewReport?.patient;
-  const pName = `${patient?.name || ""} ${patient?.fullName || ""}`.trim() || "Muhammad Ali Khan";
+  const pName = patient ? patientName(patient) : "Patient";
   const doctorName = getDoctorName(previewReport);
   const specimenType = getSpecimenType(previewReport);
   const testTitle = getReportTestTitle(previewReport);
@@ -504,7 +517,7 @@ export default function Reports() {
                 <ChevronDecorativeBar color="#0c3c6d" height={14} />
               </div>
 
-              {/* Patient Details Box */}
+              {/* Patient Details Box (Fixes A2) */}
               <div className="xpert-patient-info-box">
                 <div className="xpert-patient-grid">
                   <div className="xpert-patient-col">
@@ -515,9 +528,18 @@ export default function Reports() {
                       </span>
                     </div>
                     <div className="xpert-info-row">
-                      <span className="xpert-info-lbl">AGE / SEX:</span>
+                      <span className="xpert-info-lbl">AGE / GENDER:</span>
                       <span className="xpert-info-val">
-                        {patient?.age || "35"} Y / {patient?.gender || "Male"}
+                        {patient?.age !== undefined && patient?.age !== null
+                          ? `${patient.age} ${patient.ageUnit === "MONTHS" ? "mo" : patient.ageUnit === "DAYS" ? "d" : "Y"}`
+                          : "—"}{" "}
+                        / {patient?.gender ? patient.gender.charAt(0) + patient.gender.slice(1).toLowerCase() : "—"}
+                      </span>
+                    </div>
+                    <div className="xpert-info-row">
+                      <span className="xpert-info-lbl">PHONE / CONTACT:</span>
+                      <span className="xpert-info-val">
+                        {patient?.phone || "—"}
                       </span>
                     </div>
                     <div className="xpert-info-row">
@@ -536,13 +558,13 @@ export default function Reports() {
 
                   <div className="xpert-patient-col">
                     <div className="xpert-info-row">
-                      <span className="xpert-info-lbl">PATIENT ID:</span>
+                      <span className="xpert-info-lbl">PATIENT CNIC / ID:</span>
                       <span className="xpert-info-val">
                         {patient?.cnic || previewReport.orderCode}
                       </span>
                     </div>
                     <div className="xpert-info-row">
-                      <span className="xpert-info-lbl">DATE & TIME:</span>
+                      <span className="xpert-info-lbl">DATE &amp; TIME:</span>
                       <span className="xpert-info-val">
                         {formatFinalizedDate(previewReport.createdAt, 0)}
                       </span>
@@ -554,14 +576,56 @@ export default function Reports() {
                       </span>
                     </div>
                     <div className="xpert-info-row">
-                      <span className="xpert-info-lbl">STATUS:</span>
+                      <span className="xpert-info-lbl">REPORT STATUS:</span>
                       <span className="xpert-info-val">
-                        <span className="xpert-status-badge xpert-status-normal">FINAL VERIFIED</span>
+                        <span
+                          className={`xpert-status-badge ${
+                            previewReport.status === "FINAL"
+                              ? "xpert-status-normal"
+                              : previewReport.status === "SUPERSEDED"
+                              ? "xpert-status-superseded"
+                              : "xpert-status-draft"
+                          }`}
+                        >
+                          {previewReport.status === "FINAL"
+                            ? "FINAL VERIFIED"
+                            : previewReport.status === "AMENDED"
+                            ? `AMENDED (V${previewReport.version || 2})`
+                            : previewReport.status === "SUPERSEDED"
+                            ? "SUPERSEDED"
+                            : "DRAFT"}
+                        </span>
                       </span>
                     </div>
                   </div>
                 </div>
               </div>
+
+              {/* DRAFT Watermark if report is DRAFT (Fixes A5) */}
+              {previewReport.status === "DRAFT" && (
+                <div
+                  className="report-draft-watermark"
+                  style={{
+                    position: "absolute",
+                    top: "45%",
+                    left: "10%",
+                    right: "10%",
+                    textAlign: "center",
+                    transform: "rotate(-32deg)",
+                    fontSize: "44px",
+                    fontWeight: "900",
+                    color: "rgba(220, 38, 38, 0.18)",
+                    border: "5px dashed rgba(220, 38, 38, 0.28)",
+                    padding: "16px",
+                    letterSpacing: "4px",
+                    pointerEvents: "none",
+                    zIndex: 10,
+                    borderRadius: "10px",
+                  }}
+                >
+                  DRAFT — NOT FOR CLINICAL USE
+                </div>
+              )}
 
               {/* Centered Boxed Banner & Test Title */}
               <div className="xpert-banner-wrapper">

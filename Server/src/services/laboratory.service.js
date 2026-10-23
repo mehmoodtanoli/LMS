@@ -1,42 +1,11 @@
 import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
-
-function normalizeString(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function assertUuid(value, fieldName) {
-  if (!UUID_PATTERN.test(value)) {
-    throw new ApiError(400, `${fieldName} must be a valid UUID.`, {
-      field: fieldName,
-    });
-  }
-}
-
-function parsePagination(query) {
-  const page = Number(query?.page ?? DEFAULT_PAGE);
-  const limit = Number(query?.limit ?? DEFAULT_LIMIT);
-
-  if (!Number.isInteger(page) || page < 1) {
-    throw new ApiError(400, "page must be a positive integer.", {
-      field: "page",
-    });
-  }
-
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw new ApiError(400, "limit must be a positive integer.", {
-      field: "limit",
-    });
-  }
-
-  return { page, limit: Math.min(limit, MAX_LIMIT) };
-}
+import {
+  assertUuid,
+  parsePagination,
+  normalizeString,
+} from "../utils/validators.js";
+import { recordAuditLog } from "../utils/audit.js";
 
 function handlePrismaError(error) {
   if (error?.code === "P2025") {
@@ -62,10 +31,20 @@ async function createLaboratory({ data }) {
     throw new ApiError(400, "name is required.", { field: "name" });
   }
 
-  return prisma.laboratory.create({
+  const lab = await prisma.laboratory.create({
     data: { name },
     select: laboratorySelect,
   });
+
+  await recordAuditLog({
+    laboratoryId: lab.id,
+    action: "LABORATORY_CREATED",
+    entity: "Laboratory",
+    entityId: lab.id,
+    details: { name },
+  });
+
+  return lab;
 }
 
 async function listLaboratories({ query }) {
@@ -145,11 +124,21 @@ async function updateLaboratory({ laboratoryId, data }) {
   }
 
   try {
-    return await prisma.laboratory.update({
+    const updated = await prisma.laboratory.update({
       where: { id: laboratoryId },
       data: updateData,
       select: laboratorySelect,
     });
+
+    await recordAuditLog({
+      laboratoryId,
+      action: "LABORATORY_UPDATED",
+      entity: "Laboratory",
+      entityId: laboratoryId,
+      details: updateData,
+    });
+
+    return updated;
   } catch (error) {
     handlePrismaError(error);
   }
@@ -165,11 +154,20 @@ async function setLaboratoryStatus({ laboratoryId, isActive }) {
   }
 
   try {
-    return await prisma.laboratory.update({
+    const updated = await prisma.laboratory.update({
       where: { id: laboratoryId },
       data: { isActive },
       select: laboratorySelect,
     });
+
+    await recordAuditLog({
+      laboratoryId,
+      action: isActive ? "LABORATORY_ACTIVATED" : "LABORATORY_DEACTIVATED",
+      entity: "Laboratory",
+      entityId: laboratoryId,
+    });
+
+    return updated;
   } catch (error) {
     handlePrismaError(error);
   }

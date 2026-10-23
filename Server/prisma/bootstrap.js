@@ -1,11 +1,21 @@
 import prisma from "../src/config/prisma.js";
 import { hashPassword } from "../src/utils/password.js";
 
-const SUPERADMIN_EMAIL = "superadmin@lms.test";
-const SUPERADMIN_PASSWORD = "Superadmin@123";
+// Production guard (Fixes S5)
+if (process.env.NODE_ENV === "production") {
+  console.error("Refusing to run bootstrap script in production environment.");
+  process.exit(1);
+}
 
-const LAB_ADMIN_EMAIL = "labadmin.a@lms.test";
-const LAB_ADMIN_PASSWORD = "Labadmin@123";
+const SUPERADMIN_EMAIL =
+  process.env.BOOTSTRAP_SUPERADMIN_EMAIL || "superadmin@lms.test";
+const SUPERADMIN_PASSWORD =
+  process.env.BOOTSTRAP_SUPERADMIN_PASSWORD || "Superadmin@123";
+
+const LAB_ADMIN_EMAIL =
+  process.env.BOOTSTRAP_LAB_ADMIN_EMAIL || "labadmin.a@lms.test";
+const LAB_ADMIN_PASSWORD =
+  process.env.BOOTSTRAP_LAB_ADMIN_PASSWORD || "Labadmin@123";
 
 async function main() {
   console.log("Bootstrapping LMS database...");
