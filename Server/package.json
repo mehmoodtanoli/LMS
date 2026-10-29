@@ -13,6 +13,9 @@
     "test": "node --test",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
+    "prisma:status": "prisma migrate status",
+    "prisma:migrate": "prisma migrate deploy",
+    "db:bootstrap": "node prisma/bootstrap.js",
     "postinstall": "prisma generate"
   },
   "keywords": [
