@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { authApi } from "../api/resources";
+import { identifyAnalyticsUser } from "../analytics";
 
 const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
@@ -16,6 +17,9 @@ export function AuthProvider({ children }) {
     window.addEventListener("lms:unauthorized", logout);
     return () => window.removeEventListener("lms:unauthorized", logout);
   }, []);
+  useEffect(() => {
+    identifyAnalyticsUser(user);
+  }, [user]);
   const login = async (credentials) => {
     const response = await authApi.login(credentials);
     localStorage.setItem("lms_token", response.data.token);

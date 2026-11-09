@@ -11,6 +11,7 @@ import {
 } from "../api/resources";
 import { apiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { trackAnalyticsEvent } from "../analytics";
 import {
   Empty,
   ErrorMessage,
@@ -295,6 +296,7 @@ export function PatientForm() {
         ? await patientsApi.update(id, data)
         : await patientsApi.create(data);
 
+      if (!id) trackAnalyticsEvent("patient_registration_completed");
       navigate(`/patients/${response.data.patient.id}`);
     } catch (err) {
       setError(apiError(err));

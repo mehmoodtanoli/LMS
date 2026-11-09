@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { ordersApi, paymentsApi } from "../api/resources";
 import { apiError } from "../api/client";
+import { trackAnalyticsEvent } from "../analytics";
 import { Empty, ErrorMessage, Loading, date, patientName } from "../components/Common";
 import { Plus, CreditCard, Search, X, Check, ArrowDownLeft, Clock, AlertCircle } from "lucide-react";
 
@@ -79,6 +80,8 @@ export default function Payments() {
         ...(form.paidAt ? { paidAt: form.paidAt } : {}),
         ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
       });
+
+      trackAnalyticsEvent("payment_received");
 
       setForm({
         orderId: "",

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ordersApi, resultsApi } from "../api/resources";
 import { apiError } from "../api/client";
+import { trackAnalyticsEvent } from "../analytics";
 import { Loading, ErrorMessage, Empty, patientName } from "../components/Common";
 import { useAuth } from "../auth/AuthContext";
 import {
@@ -263,6 +264,9 @@ export default function Results() {
           ? "Result finalized successfully!"
           : "Results saved successfully!"
       );
+      if (targetStatus === "FINALIZED") {
+        trackAnalyticsEvent("report_finalized");
+      }
       setConfirmFinalizeOpen(false);
       loadData();
     } catch (err) {

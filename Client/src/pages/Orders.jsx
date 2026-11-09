@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ordersApi, patientsApi, testsApi } from "../api/resources";
 import { apiError } from "../api/client";
+import { trackAnalyticsEvent } from "../analytics";
 import { Loading, ErrorMessage, Empty, patientName } from "../components/Common";
 import {
   Plus,
@@ -244,6 +245,10 @@ export default function Orders() {
           })
         )
       );
+
+      trackAnalyticsEvent("test_order_created", {
+        test_count: modalSelectedTests.length,
+      });
 
       // Reset modal and reload
       setIsModalOpen(false);
