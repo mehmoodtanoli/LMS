@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   createReport,
   hasCompleteResult,
+  buildReportSnapshot,
+  buildListWhere,
 } from "../src/services/report.service.js";
 import prisma from "../src/config/prisma.js";
 
@@ -58,6 +60,56 @@ test("report completeness accepts parameter names as stored value keys", () => {
     }),
     true
   );
+});
+
+test("report snapshots preserve laboratory profile and separate patient/order identifiers", () => {
+  const snapshot = buildReportSnapshot({
+    id: "order-a",
+    status: "COMPLETED",
+    notes: "Dr. Lab A",
+    createdAt: "2026-11-09T10:00:00.000Z",
+    updatedAt: "2026-11-09T10:00:00.000Z",
+    laboratory: {
+      id: "lab-a",
+      name: "Lab A",
+      address: "Lab A address",
+      phone: "111",
+      email: "a@example.test",
+      logoUrl: "https://example.test/a.png",
+      tagline: "Lab A diagnostics",
+    },
+    patient: {
+      id: "patient-a",
+      name: "Patient A",
+      fullName: "Patient A Full",
+      cnic: "CNIC-A",
+      phone: "222",
+      age: 31,
+      ageUnit: "YEARS",
+      gender: "FEMALE",
+      address: "Patient address",
+      laboratoryId: "lab-a",
+    },
+    orderedTestItems: [],
+  });
+
+  assert.equal(snapshot.order.id, "order-a");
+  assert.equal(snapshot.patient.id, "patient-a");
+  assert.equal(snapshot.patient.cnic, "CNIC-A");
+  assert.equal(snapshot.laboratory.name, "Lab A");
+  assert.equal(snapshot.laboratory.email, "a@example.test");
+});
+
+test("laboratory users are scoped to their assigned laboratory", () => {
+  assert.deepEqual(
+    buildListWhere({ role: "LAB_ADMIN", laboratoryId: "lab-a" }),
+    { laboratoryId: "lab-a", order: { laboratoryId: "lab-a" } }
+  );
+  assert.deepEqual(
+    buildListWhere({ role: "LAB_TECH", laboratoryId: "lab-b" }),
+    { laboratoryId: "lab-b", order: { laboratoryId: "lab-b" } }
+  );
+  assert.deepEqual(buildListWhere({ role: "SUPERADMIN" }), {});
 });
 
 test("LAB_TECH users cannot finalize or amend reports", async () => {

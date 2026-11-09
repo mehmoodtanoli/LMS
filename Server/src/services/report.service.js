@@ -26,6 +26,11 @@ const REPORT_SELECT = {
     select: {
       id: true,
       name: true,
+      address: true,
+      phone: true,
+      email: true,
+      logoUrl: true,
+      tagline: true,
     },
   },
 
@@ -136,6 +141,7 @@ function buildListWhere(user) {
 
   if (laboratoryId) {
     return {
+      laboratoryId,
       order: {
         laboratoryId,
       },
@@ -222,6 +228,11 @@ async function findAccessibleOrder({ user, orderId }) {
         select: {
           id: true,
           name: true,
+          address: true,
+          phone: true,
+          email: true,
+          logoUrl: true,
+          tagline: true,
         },
       },
 
@@ -542,4 +553,11 @@ async function getReportById({ user, reportId }) {
   return report;
 }
 
-export { createReport, listReports, getReportById, hasCompleteResult };
+export {
+  createReport,
+  listReports,
+  getReportById,
+  hasCompleteResult,
+  buildReportSnapshot,
+  buildListWhere,
+};

@@ -12,16 +12,12 @@ import {
   Calendar,
   User,
   FlaskConical,
-  Check,
-  Heart,
-  Zap,
   MapPin,
   Phone,
   Mail,
+  Activity,
 } from "lucide-react";
 import {
-  XpertLabLogo,
-  Service24HoursBadge,
   ChevronDecorativeBar,
 } from "../components/XpertLogo";
 
@@ -33,16 +29,7 @@ function getInitials(name) {
 }
 
 function formatFinalizedDate(isoString, idx = 0) {
-  if (!isoString) {
-    const dates = [
-      "30 Sept 2026 · 23:30",
-      "01 Oct 2026 · 15:30",
-      "27 Sept 2026 · 22:00",
-      "01 Oct 2026 · 19:00",
-      "02 Oct 2026 · 11:15",
-    ];
-    return dates[idx % dates.length];
-  }
+  if (!isoString) return "—";
   const d = new Date(isoString);
   const day = d.getDate().toString().padStart(2, "0");
   const monthNames = [
@@ -61,7 +48,7 @@ function getDoctorName(report) {
     const match = report.notes.match(/Dr\.\s*[^,\n.]+/i);
     if (match) return match[0];
   }
-  return "Dr. Saeed Ahmed (MBBS, FCPS)";
+  return "—";
 }
 
 function getSpecimenType(report) {
@@ -77,7 +64,7 @@ function getSpecimenType(report) {
     return "Mid-stream Urine";
   if (testsStr.includes("STOOL"))
     return "Stool Specimen";
-  return "Venous Blood / Serum";
+  return "—";
 }
 
 function getReportTestTitle(report) {
@@ -126,6 +113,11 @@ function computeFlag(value, refRange) {
   return null;
 }
 
+function isPresentResultValue(value) {
+  if (value === null || value === undefined) return false;
+  return typeof value === "string" ? value.trim().length > 0 : true;
+}
+
 function getReportRows(report) {
   const rows = [];
   const items = report?.testItems || [];
@@ -141,20 +133,30 @@ function getReportRows(report) {
     if (resVal && typeof resVal === "object" && Object.keys(resVal).length > 0) {
       hasRecordedValues = true;
       const paramDefs = item.testDefinition?.parameters || [];
-      const keys = Object.keys(resVal);
-
       rows.push({ isHeader: true, title: testName || testCode });
 
-      keys.forEach((key) => {
+      Object.keys(resVal).forEach((key) => {
         const val = resVal[key];
-        const def = paramDefs.find((p) => p.name === key) || {};
+        const def = paramDefs.find((p) => p.id === key || p.name === key) || {};
         rows.push({
           name: key,
           value: val,
           unit: def.unit || "",
           referenceRange: def.referenceRange || "",
           flag: computeFlag(val, def.referenceRange),
+          resultStatus: item.result?.status,
         });
+      });
+    } else if (isPresentResultValue(resVal)) {
+      hasRecordedValues = true;
+      rows.push({ isHeader: true, title: testName || testCode });
+      rows.push({
+        name: testName || testCode || "Result",
+        value: resVal,
+        unit: item.result?.unit || "",
+        referenceRange: item.result?.referenceRange || "",
+        flag: computeFlag(resVal, item.result?.referenceRange),
+        resultStatus: item.result?.status,
       });
     }
   });
@@ -163,54 +165,7 @@ function getReportRows(report) {
     return rows;
   }
 
-  // Realistic clinical default matching the report letterhead
-  const testsStr = items
-    .map((i) => `${i.testDefinition?.code || ""} ${i.testDefinition?.name || ""}`)
-    .join(" ")
-    .toUpperCase();
-
-  if (testsStr.includes("PT") || testsStr.includes("PROTHROMBIN") || testsStr.includes("INR") || testsStr === "") {
-    return [
-      { isHeader: true, title: "COAGULATION PROFILE" },
-      { name: "Patient Value", value: "13.2", unit: "Seconds", referenceRange: "11.0 - 15.0", flag: "Normal" },
-      { name: "Control Value", value: "13.0", unit: "Seconds", referenceRange: "12.0 - 14.0", flag: "Normal" },
-      { name: "I.N.R", value: "1.02", unit: "Ratio", referenceRange: "0.8 - 1.2", flag: "Normal" },
-      { name: "Prothrombin Activity / Index", value: "98", unit: "%", referenceRange: "70 - 100", flag: "Normal" },
-    ];
-  }
-
-  if (testsStr.includes("CBC")) {
-    return [
-      { isHeader: true, title: "COMPLETE BLOOD EXAMINATION" },
-      { name: "Hemoglobin (Hb)", value: "14.2", unit: "g/dL", referenceRange: "13.0 - 17.0", flag: "Normal" },
-      { name: "Total White Blood Cells", value: "7.4", unit: "x10³/µL", referenceRange: "4.0 - 11.0", flag: "Normal" },
-      { name: "Platelet Count", value: "285", unit: "x10³/µL", referenceRange: "150 - 450", flag: "Normal" },
-      { name: "Red Blood Cell Count", value: "4.8", unit: "x10⁶/µL", referenceRange: "4.5 - 5.5", flag: "Normal" },
-      { name: "Hematocrit (PCV)", value: "44", unit: "%", referenceRange: "40 - 50", flag: "Normal" },
-      { name: "ESR (1st Hour)", value: "8", unit: "mm/hr", referenceRange: "0 - 15", flag: "Normal" },
-    ];
-  }
-
-  if (testsStr.includes("LFT")) {
-    return [
-      { isHeader: true, title: "LIVER FUNCTION TESTS" },
-      { name: "Total Bilirubin", value: "0.8", unit: "mg/dL", referenceRange: "0.2 - 1.2", flag: "Normal" },
-      { name: "SGPT / ALT", value: "28", unit: "U/L", referenceRange: "10 - 40", flag: "Normal" },
-      { name: "Alkaline Phosphatase (ALP)", value: "110", unit: "U/L", referenceRange: "44 - 147", flag: "Normal" },
-      { name: "Total Protein", value: "7.1", unit: "g/dL", referenceRange: "6.0 - 8.3", flag: "Normal" },
-      { name: "Serum Albumin", value: "4.2", unit: "g/dL", referenceRange: "3.5 - 5.0", flag: "Normal" },
-    ];
-  }
-
-  return [
-    { isHeader: true, title: "CLINICAL PATHOLOGY & BIOCHEMISTRY" },
-    { name: "Patient Value (PT)", value: "13.2", unit: "Seconds", referenceRange: "11.0 - 15.0", flag: "Normal" },
-    { name: "Control Value", value: "13.0", unit: "Seconds", referenceRange: "12.0 - 14.0", flag: "Normal" },
-    { name: "I.N.R", value: "1.02", unit: "Ratio", referenceRange: "0.8 - 1.2", flag: "Normal" },
-    { name: "Hemoglobin (Hb)", value: "14.2", unit: "g/dL", referenceRange: "13.0 - 17.0", flag: "Normal" },
-    { name: "Serum Creatinine", value: "0.9", unit: "mg/dL", referenceRange: "0.6 - 1.3", flag: "Normal" },
-    { name: "Fasting Blood Sugar", value: "94", unit: "mg/dL", referenceRange: "70 - 100", flag: "Normal" },
-  ];
+  return [];
 }
 
 export default function Reports() {
@@ -239,12 +194,9 @@ export default function Reports() {
 
   useEffect(loadData, []);
 
-  // Filtered reports or finalized orders
+  // Reports are sourced from the report records so status and identity remain authoritative.
   const displayReports = useMemo(() => {
-    let list = [];
-
-    if (reports.length > 0) {
-      list = reports.map((rep) => {
+    const list = reports.map((rep) => {
         const order = rep.order || orders.find((o) => o.id === rep.orderId);
         const pat = rep.snapshot?.patient || order?.patient;
         const testItems = rep.snapshot?.orderedTestItems || order?.orderedTestItems || [];
@@ -254,12 +206,16 @@ export default function Reports() {
         );
         return {
           id: rep.id,
+          reportId: rep.id,
           orderId: rep.orderId,
-          orderCode: `ORD-${(rep.orderId || rep.id).replace(/-/g, "").slice(0, 3).toUpperCase()}`,
+          orderCode: order?.id
+            ? `ORD-${order.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`
+            : "—",
+          laboratory: rep.laboratory || order?.laboratory || null,
           patient: pat,
           testItems,
-          amount: totalAmount > 0 ? totalAmount : 1200,
-          status: rep.status || "FINAL",
+          amount: totalAmount,
+          status: rep.status,
           version: rep.version || 1,
           createdAt: rep.createdAt,
           title: rep.title || "Diagnostic Pathology Report",
@@ -267,25 +223,6 @@ export default function Reports() {
           notes: order?.notes || "",
         };
       });
-    } else {
-      list = orders.map((order, idx) => ({
-        id: order.id,
-        orderId: order.id,
-        orderCode: `ORD-${order.id.replace(/-/g, "").slice(0, 3).toUpperCase() || String(idx + 1).padStart(3, "0")}`,
-        patient: order.patient,
-        testItems: order.orderedTestItems || [],
-        amount: (order.orderedTestItems || []).reduce(
-          (sum, item) => sum + Number(item.price || item.testDefinition?.price || 0),
-          0
-        ) || 800 + ((order.orderedTestItems?.length || 1) * 600),
-        status: "FINAL",
-        version: 1,
-        createdAt: order.createdAt,
-        title: "Clinical Laboratory Report",
-        results: (order.orderedTestItems || []).map((i) => i.result).filter(Boolean),
-        notes: order.notes || "",
-      }));
-    }
 
     if (!search.trim()) return list;
     const q = search.toLowerCase();
@@ -321,6 +258,7 @@ export default function Reports() {
   const specimenType = getSpecimenType(previewReport);
   const testTitle = getReportTestTitle(previewReport);
   const reportRows = previewReport ? getReportRows(previewReport) : [];
+  const laboratory = previewReport?.laboratory;
   const testsRequiredStr = (previewReport?.testItems || [])
     .map((i) => i.testDefinition?.name || i.testDefinition?.code)
     .filter(Boolean)
@@ -372,7 +310,7 @@ export default function Reports() {
               {displayReports.map((report, idx) => {
                 const pat = report.patient;
                 const name = `${pat?.name || ""} ${pat?.fullName || ""}`.trim() || "Patient";
-                const cnic = pat?.cnic || "35201-1234567-1";
+                const cnic = pat?.cnic || "—";
                 const initials = getInitials(name);
                 const testItems = report.testItems || [];
                 const finalizedStr = formatFinalizedDate(report.createdAt, idx);
@@ -394,7 +332,7 @@ export default function Reports() {
                         {testItems.length > 0 ? (
                           testItems.map((item, tIdx) => {
                             const code = (
-                              item.testDefinition?.code || "CBC"
+                              item.testDefinition?.code
                             ).toUpperCase();
                             return (
                               <span key={item.id || tIdx} className="test-tag">
@@ -402,12 +340,7 @@ export default function Reports() {
                               </span>
                             );
                           })
-                        ) : (
-                          <>
-                            <span className="test-tag">PT</span>
-                            <span className="test-tag">INR</span>
-                          </>
-                        )}
+                        ) : "—"}
                       </div>
                     </td>
                     <td className="cell-amount">
@@ -475,7 +408,7 @@ export default function Reports() {
             <div className="printable-lab-report" id="printable-report">
               {/* Background Watermark */}
               <div className="xpert-watermark" aria-hidden="true">
-                <XpertLabLogo size={320} color="#0c3c6d" />
+                <Activity size={320} color="#0c3c6d" strokeWidth={1} />
               </div>
 
               {/* Header */}
@@ -483,33 +416,38 @@ export default function Reports() {
                 <div className="xpert-header-top">
                   <div className="xpert-logo-brand-group">
                     <div className="xpert-logo-box">
-                      <XpertLabLogo size={52} color="#0c3c6d" />
+                      {laboratory?.logoUrl ? (
+                        <img
+                          src={laboratory.logoUrl}
+                          alt=""
+                          style={{ width: "52px", height: "52px", objectFit: "contain" }}
+                        />
+                      ) : (
+                        <Activity size={52} color="#0c3c6d" />
+                      )}
                     </div>
                     <div className="xpert-titles-group">
                       <div className="xpert-main-brand">
-                        <span className="xpert-brand-xpert">XPERT</span>
-                        <span className="xpert-brand-clinical">CLINICAL LABORATORY</span>
-                      </div>
-                      <div className="xpert-pill-badges">
-                        <span className="xpert-pill xpert-pill-accurate">
-                          <Check size={11} strokeWidth={3} /> ACCURATE
-                        </span>
-                        <span className="xpert-pill xpert-pill-caring">
-                          <Heart size={11} fill="currentColor" /> CARING
-                        </span>
-                        <span className="xpert-pill xpert-pill-instant">
-                          <Zap size={11} fill="currentColor" /> INSTANT
+                        <span className="xpert-brand-xpert">
+                          {laboratory?.name || "Laboratory Management System"}
                         </span>
                       </div>
+                      {laboratory?.tagline && (
+                        <div className="xpert-pill-badges">
+                          <span className="xpert-pill xpert-pill-accurate">
+                            {laboratory.tagline}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   <div className="xpert-header-meta">
                     <div className="xpert-report-id-badge">
-                      <span className="xpert-id-label">LAB NO / REPORT ID</span>
-                      <span className="xpert-id-number">{previewReport.orderCode}</span>
+                      <span className="xpert-id-label">REPORT ID</span>
+                      <span className="xpert-id-number">{previewReport.reportId}</span>
                     </div>
-                    <span className="xpert-instant-tag">24/7 EMERGENCY DIAGNOSTICS</span>
+                      <span className="xpert-instant-tag">ORDER {previewReport.orderCode}</span>
                   </div>
                 </div>
 
@@ -560,7 +498,7 @@ export default function Reports() {
                     <div className="xpert-info-row">
                       <span className="xpert-info-lbl">PATIENT CNIC / ID:</span>
                       <span className="xpert-info-val">
-                        {patient?.cnic || previewReport.orderCode}
+                        {patient?.cnic || "—"}
                       </span>
                     </div>
                     <div className="xpert-info-row">
@@ -674,7 +612,9 @@ export default function Reports() {
                                   : "xpert-status-normal"
                               }`}
                             >
-                              {row.flag || "Normal"}
+                              {row.resultStatus === "FINALIZED"
+                                ? row.flag || "Finalized"
+                                : row.resultStatus || "—"}
                             </span>
                           </td>
                         </tr>
@@ -688,7 +628,7 @@ export default function Reports() {
               <div className="xpert-footer-section">
                 <div className="xpert-footer-middle">
                   <div className="xpert-footer-seal">
-                    <Service24HoursBadge size={72} color="#0c3c6d" />
+                    <Activity size={52} color="#0c3c6d" />
                   </div>
                   <div className="xpert-footer-disclaimer-box">
                     <p className="xpert-disclaimer-title">ELECTRONICALLY VERIFIED REPORT</p>
@@ -704,8 +644,8 @@ export default function Reports() {
                     </div>
                     <div className="xpert-signature-block">
                       <div className="xpert-sig-line" />
-                      <p className="xpert-sig-name">Dr. Saeed Ahmed</p>
-                      <p className="xpert-sig-title">Consultant Pathologist (M.Phil)</p>
+                      <p className="xpert-sig-name">Authorized Reviewer</p>
+                      <p className="xpert-sig-title">Laboratory Report Verification</p>
                     </div>
                   </div>
                 </div>
@@ -715,14 +655,24 @@ export default function Reports() {
                   <div className="xpert-bar-info">
                     <div className="xpert-bar-address">
                       <MapPin size={13} style={{ flexShrink: 0 }} />
-                      <span>Al Haider Plaza Opp: INOR Gate, Mansehra Road Abbottabad</span>
+                      <span>{laboratory?.address || "—"}</span>
                     </div>
                     <div className="xpert-bar-contact">
-                      <Phone size={13} style={{ flexShrink: 0 }} />
-                      <span>Contact: 0992634625</span>
-                      <span style={{ margin: "0 6px" }}>·</span>
-                      <Mail size={13} style={{ flexShrink: 0 }} />
-                      <span>Email: xpertlab70@gmail.com</span>
+                      {laboratory?.phone && (
+                        <>
+                          <Phone size={13} style={{ flexShrink: 0 }} />
+                          <span>Contact: {laboratory.phone}</span>
+                        </>
+                      )}
+                      {laboratory?.phone && laboratory?.email && (
+                        <span style={{ margin: "0 6px" }}>·</span>
+                      )}
+                      {laboratory?.email && (
+                        <>
+                          <Mail size={13} style={{ flexShrink: 0 }} />
+                          <span>Email: {laboratory.email}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="xpert-bar-chevrons">

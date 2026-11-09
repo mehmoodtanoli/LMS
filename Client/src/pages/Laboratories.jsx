@@ -168,7 +168,14 @@ export default function Laboratories() {
 export function LaboratoryForm() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "" });
+  const [form, setForm] = useState({
+    name: "",
+    address: "",
+    phone: "",
+    email: "",
+    logoUrl: "",
+    tagline: "",
+  });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(Boolean(id));
 
@@ -176,7 +183,14 @@ export function LaboratoryForm() {
     if (id) {
       laboratoriesApi
         .get(id)
-        .then((r) => setForm({ name: r.data.laboratory.name }))
+        .then((r) => setForm({
+          name: r.data.laboratory.name || "",
+          address: r.data.laboratory.address || "",
+          phone: r.data.laboratory.phone || "",
+          email: r.data.laboratory.email || "",
+          logoUrl: r.data.laboratory.logoUrl || "",
+          tagline: r.data.laboratory.tagline || "",
+        }))
         .catch((e) => setError(apiError(e)))
         .finally(() => setBusy(false));
     }
@@ -236,11 +250,53 @@ export function LaboratoryForm() {
               required
               placeholder="e.g. Xpert Clinical Laboratory - Abbottabad"
               value={form.name}
-              onChange={(e) => setForm({ name: e.target.value })}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
             <span className="field-hint">
               Enter the full official name of this laboratory or diagnostic facility
             </span>
+          </div>
+
+          <div className="form-group-clean">
+            <label>Address</label>
+            <input
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group-clean">
+            <label>Contact number</label>
+            <input
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group-clean">
+            <label>Email</label>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group-clean">
+            <label>Logo URL</label>
+            <input
+              type="url"
+              value={form.logoUrl}
+              onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group-clean">
+            <label>Report tagline</label>
+            <input
+              value={form.tagline}
+              onChange={(e) => setForm({ ...form, tagline: e.target.value })}
+            />
           </div>
 
           <div className="form-actions-clean">

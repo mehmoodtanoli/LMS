@@ -4,6 +4,7 @@ import {
   assertUuid,
   parsePagination,
   normalizeString,
+  normalizeOptionalString,
 } from "../utils/validators.js";
 import { recordAuditLog } from "../utils/audit.js";
 
@@ -15,9 +16,26 @@ function handlePrismaError(error) {
   throw error;
 }
 
+function buildLaboratoryData(data, name) {
+  const profile = { name };
+
+  for (const field of ["address", "phone", "email", "logoUrl", "tagline"]) {
+    if (data[field] !== undefined) {
+      profile[field] = normalizeOptionalString(data[field]) ?? null;
+    }
+  }
+
+  return profile;
+}
+
 const laboratorySelect = {
   id: true,
   name: true,
+  address: true,
+  phone: true,
+  email: true,
+  logoUrl: true,
+  tagline: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -32,7 +50,7 @@ async function createLaboratory({ data }) {
   }
 
   const lab = await prisma.laboratory.create({
-    data: { name },
+    data: buildLaboratoryData(data, name),
     select: laboratorySelect,
   });
 
@@ -117,6 +135,12 @@ async function updateLaboratory({ laboratoryId, data }) {
     }
 
     updateData.name = name;
+  }
+
+  for (const field of ["address", "phone", "email", "logoUrl", "tagline"]) {
+    if (data[field] !== undefined) {
+      updateData[field] = normalizeOptionalString(data[field]) ?? null;
+    }
   }
 
   if (Object.keys(updateData).length === 0) {
