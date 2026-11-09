@@ -328,6 +328,23 @@ function buildReportSnapshot(order) {
   };
 }
 
+function isPresentResultValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  return true;
+}
+
+function hasCompleteResult(item) {
+  const result = item.result;
+  if (!result || result.status !== "FINALIZED") return false;
+  const parameters = item.testDefinition?.parameters ?? [];
+  if (parameters.length === 0) return isPresentResultValue(result.value);
+  if (!result.value || typeof result.value !== "object") return false;
+  return parameters.every((parameter) =>
+    isPresentResultValue(result.value[parameter.id] ?? result.value[parameter.name])
+  );
+}
+
 async function createReport({ user, data }) {
   const orderId = normalizeString(data.orderId);
 
@@ -335,6 +352,16 @@ async function createReport({ user, data }) {
     throw new ApiError(400, "orderId is required.", {
       field: "orderId",
     });
+  }
+
+  const reportData = buildReportData(data);
+  const targetStatus = reportData.status || "DRAFT";
+
+  if (user.role === "LAB_TECH" && targetStatus !== "DRAFT") {
+    throw new ApiError(
+      403,
+      "LAB_TECH users may prepare draft reports but cannot finalize or amend reports."
+    );
   }
 
   const order = await findAccessibleOrder({
@@ -351,14 +378,9 @@ async function createReport({ user, data }) {
     throw new ApiError(400, "Test order does not contain any ordered test items.");
   }
 
-  const reportData = buildReportData(data);
-  const targetStatus = reportData.status || "DRAFT";
-
   // Report Integrity Guard 2: For FINAL reports, all test results must be FINALIZED (Fixes A5)
   if (targetStatus === "FINAL") {
-    const unfinalizedItems = order.orderedTestItems.filter(
-      (item) => !item.result || item.result.status !== "FINALIZED"
-    );
+    const unfinalizedItems = order.orderedTestItems.filter((item) => !hasCompleteResult(item));
 
     if (unfinalizedItems.length > 0) {
       const names = unfinalizedItems
@@ -424,6 +446,7 @@ async function createReport({ user, data }) {
       });
 
       await recordAuditLog({
+        db: tx,
         laboratoryId: order.laboratoryId,
         userId: user.id,
         action: "REPORT_CREATED",
@@ -519,4 +542,4 @@ async function getReportById({ user, reportId }) {
   return report;
 }
 
-export { createReport, listReports, getReportById };
+export { createReport, listReports, getReportById, hasCompleteResult };

@@ -15,11 +15,12 @@ import paymentRouter from "./routes/payment.route.js";
 import laboratoryRouter from "./routes/laboratory.route.js";
 import userRouter from "./routes/user.route.js";
 import dashboardRouter from "./routes/dashboard.route.js";
+import prisma from "./config/prisma.js";
 
 const app = express();
 
 // Trust proxy for proper IP resolution behind reverse proxy / load balancer (Fixes #8)
-app.set("trust proxy", 1);
+app.set("trust proxy", process.env.NODE_ENV === "production" ? 1 : false);
 
 // Basic security headers middleware (Fixes S2)
 app.use((req, res, next) => {
@@ -34,7 +35,11 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+app.use(cors({ origin: allowedOrigins }));
 
 const morganStream = {
   write: (message) => logger.info(message.trim()),
@@ -46,6 +51,15 @@ app.get("/api/health", (req, res) => {
     status: "ok",
   });
   res.status(200).json(response);
+});
+
+app.get("/api/ready", async (req, res, next) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json(new ApiResponse(200, "LMS API is ready.", { status: "ready" }));
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use("/api/auth", authRouter);

@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { randomUUID } from "node:crypto";
 import ApiError from "../utils/ApiError.js";
 import {
   assertUuid,
@@ -64,12 +65,15 @@ const PAYMENT_SELECT = {
   },
 };
 
+const IDEMPOTENCY_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function assertLabAdminScope(user) {
   if (user.role === "SUPERADMIN") {
     return null;
   }
 
-  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
+  if (user.role === "LAB_ADMIN") {
     if (!user.laboratoryId) {
       throw new ApiError(
         403,
@@ -81,6 +85,29 @@ function assertLabAdminScope(user) {
   }
 
   throw new ApiError(403, "You are not authorized to access payments.");
+}
+
+function parseMoneyToCents(value, field = "amount", allowZero = false) {
+  const normalizedValue = String(value).trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(normalizedValue)) {
+    throw new ApiError(400, `${field} must be a positive amount with at most two decimal places.`, {
+      field,
+    });
+  }
+
+  const [whole, fraction = ""] = normalizedValue.split(".");
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  if (!Number.isSafeInteger(cents) || cents < 0 || (!allowZero && cents === 0)) {
+    throw new ApiError(400, "amount must be a positive number.", { field });
+  }
+  return cents;
+}
+
+function moneyToCents(value, field = "amount", allowZero = false) {
+  if (value === undefined || value === null) {
+    throw new ApiError(400, `${field} is required.`, { field });
+  }
+  return parseMoneyToCents(value, field, allowZero);
 }
 
 function buildListWhere(user) {
@@ -121,16 +148,10 @@ function normalizePaymentAmount(value) {
     if (!trimmed) {
       throw new ApiError(400, "amount is required.", { field: "amount" });
     }
-    numericValue = Number(trimmed);
+    numericValue = moneyToCents(trimmed) / 100;
   } else if (typeof value === "number") {
-    numericValue = value;
+    numericValue = moneyToCents(value.toFixed(2)) / 100;
   } else {
-    throw new ApiError(400, "amount must be a positive number.", {
-      field: "amount",
-    });
-  }
-
-  if (!Number.isFinite(numericValue) || numericValue <= 0) {
     throw new ApiError(400, "amount must be a positive number.", {
       field: "amount",
     });
@@ -146,8 +167,12 @@ function buildPaymentData(data) {
     paymentData.amount = normalizePaymentAmount(data.amount);
   }
 
-  // If status is omitted, server sets PAID (Fixes A3)
   paymentData.status = data.status ? normalizePaymentStatus(data.status) : "PAID";
+  if (paymentData.status !== "PAID") {
+    throw new ApiError(400, "New payment transactions must have PAID status.", {
+      field: "status",
+    });
+  }
 
   if (data.paidAt !== undefined) {
     if (data.paidAt === null || data.paidAt === "") {
@@ -173,12 +198,12 @@ function buildPaymentData(data) {
   return paymentData;
 }
 
-async function findAccessibleTestOrder({ user, orderId }) {
+async function findAccessibleTestOrder({ user, orderId, db = prisma }) {
   assertUuid(orderId, "orderId");
 
   const laboratoryId = assertLabAdminScope(user);
 
-  const order = await prisma.testOrder.findFirst({
+  const order = await db.testOrder.findFirst({
     where: laboratoryId
       ? {
           id: orderId,
@@ -243,46 +268,48 @@ async function findAccessibleTestOrder({ user, orderId }) {
 async function getOrderBilling({ user, orderId }) {
   const order = await findAccessibleTestOrder({ user, orderId });
 
-  let totalAmount = 0;
+  let totalAmountCents = 0;
   const items = (order.orderedTestItems || []).map((item) => {
-    const itemPrice = Number(item.price || item.testDefinition?.price || 0);
-    totalAmount += itemPrice;
+    const itemPriceCents = item.price === null || item.price === undefined
+      ? 0
+      : moneyToCents(item.price, "ordered item price", true);
+    totalAmountCents += itemPriceCents;
     return {
       id: item.id,
       testCode: item.testDefinition?.code,
       testName: item.testDefinition?.name,
-      price: itemPrice,
+      price: itemPriceCents / 100,
     };
   });
 
-  let paidAmount = 0;
+  let paidAmountCents = 0;
   (order.payments || []).forEach((p) => {
     if (p.status === "PAID") {
-      paidAmount += Number(p.amount || 0);
+      paidAmountCents += moneyToCents(p.amount, "payment amount");
     }
   });
 
-  const remainingAmount = Math.max(0, totalAmount - paidAmount);
+  const remainingAmountCents = Math.max(0, totalAmountCents - paidAmountCents);
   let status = "UNPAID";
-  if (paidAmount >= totalAmount && totalAmount > 0) {
+  if (paidAmountCents >= totalAmountCents && totalAmountCents > 0) {
     status = "PAID";
-  } else if (paidAmount > 0) {
+  } else if (paidAmountCents > 0) {
     status = "PARTIALLY_PAID";
   }
 
   return {
     orderId: order.id,
     patient: order.patient,
-    totalAmount,
-    paidAmount,
-    remainingAmount,
+    totalAmount: totalAmountCents / 100,
+    paidAmount: paidAmountCents / 100,
+    remainingAmount: remainingAmountCents / 100,
     status,
     items,
     payments: order.payments,
   };
 }
 
-async function createPayment({ user, data }) {
+async function createPayment({ user, data, idempotencyKey }) {
   const orderId = normalizeString(data.orderId);
 
   if (!orderId) {
@@ -295,11 +322,43 @@ async function createPayment({ user, data }) {
     throw new ApiError(400, "amount is required.", { field: "amount" });
   }
 
-  const accessibleOrder = await findAccessibleTestOrder({ user, orderId });
+  const normalizedIdempotencyKey = normalizeString(idempotencyKey).toLowerCase() || randomUUID();
+  if (!IDEMPOTENCY_KEY_PATTERN.test(normalizedIdempotencyKey)) {
+    throw new ApiError(400, "Idempotency-Key must be a valid UUID.", {
+      field: "idempotencyKey",
+    });
+  }
 
   try {
     return await prisma.$transaction(async (tx) => {
-      // Re-fetch existing payments inside transaction to guarantee atomic balance check (Fixes M2)
+      const accessibleOrder = await findAccessibleTestOrder({ user, orderId, db: tx });
+      await tx.$queryRaw`SELECT id FROM "test_orders" WHERE id = ${orderId}::uuid FOR UPDATE`;
+
+      const existingPayment = await tx.payment.findUnique({
+        where: { idempotencyKey: normalizedIdempotencyKey },
+        select: {
+          ...PAYMENT_SELECT,
+          idempotencyPayload: true,
+        },
+      });
+      const requestedPayload = {
+        orderId,
+        amount: Number(paymentData.amount).toFixed(2),
+        status: paymentData.status,
+        paidAt: data.paidAt === undefined ? null : paymentData.paidAt?.toISOString() ?? null,
+        notes: paymentData.notes ?? null,
+      };
+      if (existingPayment) {
+        const existingPayload = existingPayment.idempotencyPayload;
+        if (JSON.stringify(existingPayload) !== JSON.stringify(requestedPayload)) {
+          throw new ApiError(409, "Idempotency-Key was already used with a different payment payload.");
+        }
+        if (existingPayment.laboratoryId !== accessibleOrder.laboratoryId) {
+          throw new ApiError(409, "Idempotency-Key was already used.");
+        }
+        return existingPayment;
+      }
+
       const existingPayments = await tx.payment.findMany({
         where: {
           orderId,
@@ -310,26 +369,32 @@ async function createPayment({ user, data }) {
         },
       });
 
-      let totalOrderAmount = 0;
+      let totalOrderAmountCents = 0;
       accessibleOrder.orderedTestItems.forEach((item) => {
-        totalOrderAmount += Number(item.price || item.testDefinition?.price || 0);
+        totalOrderAmountCents += item.price === null || item.price === undefined
+          ? 0
+          : moneyToCents(item.price, "ordered item price", true);
       });
 
-      const alreadyPaid = existingPayments.reduce(
-        (sum, p) => sum + Number(p.amount || 0),
+      const alreadyPaidCents = existingPayments.reduce(
+        (sum, p) => sum + moneyToCents(p.amount, "payment amount"),
         0
       );
-      const remainingBalance = Math.max(0, totalOrderAmount - alreadyPaid);
+      const paymentAmountCents = moneyToCents(paymentData.amount);
+      const remainingBalanceCents = Math.max(
+        0,
+        totalOrderAmountCents - alreadyPaidCents
+      );
 
-      // Overpayment cap: check only if order has items with prices
-      if (totalOrderAmount > 0 && paymentData.amount > remainingBalance + 0.001) {
+      if (paymentAmountCents > remainingBalanceCents) {
+        const remainingBalance = remainingBalanceCents / 100;
         throw new ApiError(
           400,
           `Payment amount (Rs. ${paymentData.amount}) exceeds remaining balance of Rs. ${remainingBalance.toFixed(2)}.`,
           {
             remainingBalance,
-            totalOrderAmount,
-            alreadyPaid,
+            totalOrderAmount: totalOrderAmountCents / 100,
+            alreadyPaid: alreadyPaidCents / 100,
           }
         );
       }
@@ -342,6 +407,8 @@ async function createPayment({ user, data }) {
           status: paymentData.status,
           paidAt: paymentData.paidAt,
           notes: paymentData.notes,
+          idempotencyKey: normalizedIdempotencyKey,
+          idempotencyPayload: requestedPayload,
         },
         select: PAYMENT_SELECT,
       });
@@ -357,11 +424,15 @@ async function createPayment({ user, data }) {
           amount: paymentData.amount,
           status: paymentData.status,
         },
+        db: tx,
       });
 
       return payment;
     });
   } catch (error) {
+    if (error?.code === "P2002") {
+      throw new ApiError(409, "Idempotency-Key was already used.");
+    }
     if (error?.code === "P2025") {
       throw new ApiError(404, "Payment not found.");
     }

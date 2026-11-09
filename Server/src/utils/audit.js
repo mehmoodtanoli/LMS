@@ -1,27 +1,34 @@
 import prisma from "../config/prisma.js";
+import logger from "./logger.js";
 
 export async function recordAuditLog({
   laboratoryId = null,
   userId = null,
   action,
   entity,
-  entityId,
+  entityId = null,
   details = null,
+  db = prisma,
 }) {
   try {
-    return await prisma.auditLog.create({
+    return await db.auditLog.create({
       data: {
         laboratoryId,
-        userId,
+        actorUserId: userId,
         action,
-        entity,
-        entityId: String(entityId),
-        details: details ? details : undefined,
+        entityType: entity,
+        entityId: entityId === null ? null : String(entityId),
+        details: details ?? undefined,
       },
     });
   } catch (error) {
-    // Audit logging should not crash the main business transaction, but should be reported
-    console.error("Failed to record audit log:", error);
-    return null;
+    logger.error("Failed to record audit log.", {
+      action,
+      entity,
+      entityId,
+      message: error.message,
+      stack: error.stack,
+    });
+    throw error;
   }
 }

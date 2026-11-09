@@ -14,7 +14,7 @@ const getSummary = async (req, res) => {
     prisma.laboratory.count({ where: { isActive: true } }),
     prisma.user.count(),
     prisma.user.count({ where: { isActive: true } }),
-    prisma.patient.count(),
+    prisma.patient.count({ where: { isDeleted: false } }),
     prisma.laboratory.findMany({
       select: { id: true, name: true, isActive: true, createdAt: true },
       orderBy: { createdAt: "desc" },

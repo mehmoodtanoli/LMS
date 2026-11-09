@@ -15,6 +15,13 @@ const VALID_RESULT_STATUSES = [
   "FINALIZED",
 ];
 
+const RESULT_TRANSITIONS = {
+  PENDING: ["PENDING", "IN_PROGRESS", "COMPLETED", "FINALIZED"],
+  IN_PROGRESS: ["IN_PROGRESS", "COMPLETED", "FINALIZED"],
+  COMPLETED: ["COMPLETED", "FINALIZED"],
+  FINALIZED: ["FINALIZED"],
+};
+
 const RESULT_SELECT = {
   id: true,
   orderedTestItemId: true,
@@ -302,24 +309,27 @@ async function createResult({ user, data }) {
   }
 
   try {
-    const result = await prisma.result.create({
-      data: {
-        orderedTestItemId,
-        ...resultData,
-      },
-      select: RESULT_SELECT,
-    });
+    return await prisma.$transaction(async (tx) => {
+      const result = await tx.result.create({
+        data: {
+          orderedTestItemId,
+          ...resultData,
+        },
+        select: RESULT_SELECT,
+      });
 
-    await recordAuditLog({
-      laboratoryId: orderedTestItem.order.laboratoryId,
-      userId: user.id,
-      action: "RESULT_CREATED",
-      entity: "Result",
-      entityId: result.id,
-      details: { status: result.status },
-    });
+      await recordAuditLog({
+        db: tx,
+        laboratoryId: orderedTestItem.order.laboratoryId,
+        userId: user.id,
+        action: "RESULT_CREATED",
+        entity: "Result",
+        entityId: result.id,
+        details: { status: result.status },
+      });
 
-    return result;
+      return result;
+    });
   } catch (error) {
     handlePrismaError(error);
   }
@@ -420,6 +430,7 @@ async function updateResult({ user, resultId, data }) {
       status: true,
       value: true,
       notes: true,
+      updatedAt: true,
       orderedTestItem: {
         select: {
           order: {
@@ -455,9 +466,16 @@ async function updateResult({ user, resultId, data }) {
   }
 
   const resultData = buildResultData(data);
+  const targetStatus = resultData.status || existingResult.status;
+  if (!RESULT_TRANSITIONS[existingResult.status]?.includes(targetStatus)) {
+    throw new ApiError(409, "Result status cannot move backward.", {
+      field: "status",
+      currentStatus: existingResult.status,
+      requestedStatus: targetStatus,
+    });
+  }
 
   // Require values to finalize (Fixes A6: "Finalize allowed with every value empty")
-  const targetStatus = resultData.status || existingResult.status;
   if (targetStatus === "FINALIZED") {
     const effectiveValue = resultData.value !== undefined ? resultData.value : existingResult.value;
     const hasValues =
@@ -494,27 +512,45 @@ async function updateResult({ user, resultId, data }) {
   }
 
   try {
-    const updated = await prisma.result.update({
-      where: {
-        id: resultId,
-      },
-
-      data: resultData,
-
-      select: RESULT_SELECT,
-    });
-
-    await recordAuditLog({
-      laboratoryId: existingResult.orderedTestItem.order.laboratoryId,
-      userId: user.id,
-      action: isCurrentlyFinalized ? "RESULT_AMENDED" : "RESULT_UPDATED",
-      entity: "Result",
-      entityId: resultId,
-      details: {
-        status: updated.status,
-        isAmendment: Boolean(data.isAmendment),
-        reason: data.amendmentReason || null,
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT r.id
+        FROM "results" r
+        JOIN "ordered_test_items" i ON i.id = r."orderedTestItemId"
+        JOIN "test_orders" o ON o.id = i."orderId"
+        WHERE r.id = ${resultId}::uuid
+        FOR UPDATE
+      `;
+      const current = await tx.result.findUnique({
+        where: { id: resultId },
+        select: { status: true, updatedAt: true },
+      });
+      if (!current) throw new ApiError(404, "Result not found.");
+      if (
+        current.status !== existingResult.status ||
+        current.updatedAt.getTime() !== existingResult.updatedAt.getTime()
+      ) {
+        throw new ApiError(409, "Result changed while it was being edited. Retry the request.");
+      }
+      const updatedResult = await tx.result.update({
+        where: { id: resultId },
+        data: resultData,
+        select: RESULT_SELECT,
+      });
+      await recordAuditLog({
+        db: tx,
+        laboratoryId: existingResult.orderedTestItem.order.laboratoryId,
+        userId: user.id,
+        action: isCurrentlyFinalized ? "RESULT_AMENDED" : "RESULT_UPDATED",
+        entity: "Result",
+        entityId: resultId,
+        details: {
+          status: updatedResult.status,
+          isAmendment: Boolean(data.isAmendment),
+          reason: data.amendmentReason || null,
+        },
+      });
+      return updatedResult;
     });
 
     return updated;

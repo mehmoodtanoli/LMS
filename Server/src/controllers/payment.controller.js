@@ -7,7 +7,11 @@ import {
 } from "../services/payment.service.js";
 
 const create = async (req, res) => {
-  const payment = await createPayment({ user: req.user, data: req.body });
+  const payment = await createPayment({
+    user: req.user,
+    data: req.body,
+    idempotencyKey: req.get("Idempotency-Key"),
+  });
 
   const response = new ApiResponse(201, "Payment created successfully.", {
     payment,
