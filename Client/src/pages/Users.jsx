@@ -53,7 +53,8 @@ export default function Users() {
         <div>
           <h1 className="page-title">Users</h1>
           <p className="page-subtitle">
-            Manage system administrators, pathologists, and laboratory staff accounts ({filtered.length} total)
+            Manage laboratory staff accounts
+            {error ? "" : ` (${filtered.length} total)`}
           </p>
         </div>
 
@@ -79,7 +80,7 @@ export default function Users() {
 
       {loading ? (
         <Loading text="Loading users…" />
-      ) : filtered.length ? (
+      ) : error ? null : filtered.length ? (
         <div className="table-card">
           <table className="clean-table">
             <thead>
@@ -148,7 +149,13 @@ export default function Users() {
           </table>
         </div>
       ) : (
-        <Empty>No matching users found.</Empty>
+        <div className="state">
+          <p>No staff members added yet.</p>
+          <Link className="btn-primary-action" to="/admin/users/new">
+            <Plus size={16} />
+            <span>Add Your First Staff Member</span>
+          </Link>
+        </div>
       )}
     </div>
   );
@@ -166,10 +173,20 @@ export function UserForm() {
   const [busy, setBusy] = useState(Boolean(id));
 
   useEffect(() => {
-    laboratoriesApi
-      .list({ page: 1, limit: 100 })
-      .then((r) => setLaboratories(r.data.laboratories || []));
-  }, []);
+    if (authUser?.role === "SUPERADMIN") {
+      laboratoriesApi
+        .list({ page: 1, limit: 100 })
+        .then((r) => setLaboratories(r.data.laboratories || []))
+        .catch((e) => setError(apiError(e)));
+    } else if (authUser?.laboratory) {
+      setLaboratories([authUser.laboratory]);
+      setForm((current) => ({
+        ...current,
+        role: "LAB_TECH",
+        laboratoryId: authUser.laboratoryId || authUser.laboratory.id,
+      }));
+    }
+  }, [authUser]);
 
   useEffect(() => {
     if (id) {
@@ -279,17 +296,28 @@ export function UserForm() {
               <div className="select-wrapper">
                 <select
                   value={form.role}
+                  disabled={authUser?.role !== "SUPERADMIN"}
                   onChange={(e) => setForm({ ...form, role: e.target.value })}
                 >
-                  <option value="LAB_ADMIN">Lab Administrator</option>
-                  <option value="LAB_TECH">Lab Technician</option>
-                  <option value="SUPERADMIN">Super Administrator</option>
+                  {authUser?.role === "SUPERADMIN" ? (
+                    <>
+                      <option value="LAB_ADMIN">Lab Administrator</option>
+                      <option value="LAB_TECH">Lab Technician</option>
+                      <option value="SUPERADMIN">Super Administrator</option>
+                    </>
+                  ) : (
+                    <option value={form.role}>
+                      {form.role === "LAB_ADMIN"
+                        ? "Lab Administrator"
+                        : "Lab Technician"}
+                    </option>
+                  )}
                 </select>
                 <ChevronDown size={16} className="select-arrow" />
               </div>
             </div>
 
-            {form.role === "LAB_ADMIN" && (
+            {(form.role === "LAB_ADMIN" || form.role === "LAB_TECH") && (
               <div className="form-group-clean">
                 <label>
                   Assigned Laboratory <span className="required-star">*</span>
@@ -298,6 +326,7 @@ export function UserForm() {
                   <select
                     required
                     value={form.laboratoryId}
+                    disabled={authUser?.role !== "SUPERADMIN"}
                     onChange={(e) =>
                       setForm({ ...form, laboratoryId: e.target.value })
                     }

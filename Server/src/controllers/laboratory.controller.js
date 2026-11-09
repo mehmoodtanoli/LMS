@@ -4,6 +4,8 @@ import {
   listLaboratories,
   getLaboratoryById,
   updateLaboratory,
+  getLaboratoryProfile,
+  updateLaboratoryProfile,
   setLaboratoryStatus,
 } from "../services/laboratory.service.js";
 
@@ -66,4 +68,25 @@ const setStatus = async (req, res) => {
   return res.status(200).json(response);
 };
 
-export { create, list, getById, update, setStatus };
+const getProfile = async (req, res) => {
+  const laboratory = await getLaboratoryProfile({
+    laboratoryId: req.user.laboratoryId,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, "Laboratory settings fetched successfully.", { laboratory })
+  );
+};
+
+const updateProfile = async (req, res) => {
+  const laboratory = await updateLaboratoryProfile({
+    user: req.user,
+    data: req.body,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, "Laboratory settings updated successfully.", { laboratory })
+  );
+};
+
+export { create, list, getById, update, setStatus, getProfile, updateProfile };

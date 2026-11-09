@@ -11,6 +11,7 @@ import {
   Activity,
   LogOut,
   ShieldAlert,
+  Settings,
 } from "lucide-react";
 
 const links = [
@@ -123,6 +124,15 @@ export default function AppShell() {
                 <span>Tests Catalog</span>
               </NavLink>
             </div>
+          )}
+          {user?.role === "LAB_ADMIN" && (
+            <NavLink
+              to="/settings"
+              className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+            >
+              <Settings size={18} className="nav-icon" />
+              <span>Settings</span>
+            </NavLink>
           )}
         </nav>
 

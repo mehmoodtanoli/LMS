@@ -10,6 +10,7 @@ import {
 import { recordAuditLog } from "../utils/audit.js";
 
 const VALID_ROLES = ["SUPERADMIN", "LAB_ADMIN", "LAB_TECH"];
+const PRIVILEGED_ROLES = ["SUPERADMIN", "LAB_ADMIN"];
 
 const userSelect = {
   id: true,
@@ -21,6 +22,20 @@ const userSelect = {
   createdAt: true,
   updatedAt: true,
 };
+
+function assertUserManagementAccess(actor) {
+  if (actor?.role === "SUPERADMIN") return;
+  if (actor?.role === "LAB_ADMIN" && actor.laboratoryId) return;
+  throw new ApiError(403, "You are not authorized to manage users.");
+}
+
+function laboratoryStaffWhere(actor) {
+  return {
+    laboratoryId: actor.laboratoryId,
+    id: { not: actor.id },
+    role: { notIn: PRIVILEGED_ROLES },
+  };
+}
 
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
@@ -80,6 +95,7 @@ async function validateRoleAndLaboratory({ role, laboratoryId }) {
 }
 
 async function createUser({ actor, data }) {
+  assertUserManagementAccess(actor);
   const email = normalizeString(data.email).toLowerCase();
 
   if (!email) {
@@ -108,6 +124,15 @@ async function createUser({ actor, data }) {
 
   let laboratoryId = data.laboratoryId;
   if (actor?.role === "LAB_ADMIN") {
+    if (role !== "LAB_TECH") {
+      throw new ApiError(
+        403,
+        "LAB_ADMIN users may only create LAB_TECH accounts."
+      );
+    }
+    if (!actor.laboratoryId) {
+      throw new ApiError(403, "User must be assigned to a laboratory.");
+    }
     laboratoryId = actor.laboratoryId;
   }
 
@@ -148,9 +173,17 @@ async function createUser({ actor, data }) {
   return user;
 }
 
-async function listUsers({ query }) {
+async function listUsers({ actor, query }) {
+  assertUserManagementAccess(actor);
   const { page, limit } = parsePagination(query);
   const where = {};
+
+  if (actor?.role === "LAB_ADMIN") {
+    if (!actor.laboratoryId) {
+      throw new ApiError(403, "User must be assigned to a laboratory.");
+    }
+    Object.assign(where, laboratoryStaffWhere(actor));
+  }
 
   const role = normalizeString(query?.role).toUpperCase();
   if (role) {
@@ -164,12 +197,19 @@ async function listUsers({ query }) {
         }
       );
     }
-    where.role = role;
+    if (actor?.role === "LAB_ADMIN") {
+      where.role = { equals: role, notIn: PRIVILEGED_ROLES };
+    } else {
+      where.role = role;
+    }
   }
 
   const laboratoryId = normalizeString(query?.laboratoryId);
   if (laboratoryId) {
     assertUuid(laboratoryId, "laboratoryId");
+    if (actor?.role === "LAB_ADMIN" && laboratoryId !== actor.laboratoryId) {
+      throw new ApiError(403, "You may only access users in your assigned laboratory.");
+    }
     where.laboratoryId = laboratoryId;
   }
 
@@ -202,11 +242,17 @@ async function listUsers({ query }) {
   };
 }
 
-async function getUserById({ userId }) {
+async function getUserById({ actor, userId }) {
   assertUuid(userId, "id");
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  assertUserManagementAccess(actor);
+  if (actor.role === "LAB_ADMIN" && !actor.laboratoryId) {
+    throw new ApiError(403, "User must be assigned to a laboratory.");
+  }
+  const user = await prisma.user.findFirst({
+    where: actor.role === "LAB_ADMIN"
+      ? { AND: [laboratoryStaffWhere(actor), { id: userId }] }
+      : { id: userId },
     select: userSelect,
   });
 
@@ -220,7 +266,13 @@ async function getUserById({ userId }) {
 async function updateUser({ actor, userId, data }) {
   assertUuid(userId, "id");
 
-  const existingUser = await prisma.user.findUnique({ where: { id: userId } });
+  assertUserManagementAccess(actor);
+
+  const existingUser = await prisma.user.findFirst({
+    where: actor.role === "LAB_ADMIN"
+      ? { AND: [laboratoryStaffWhere(actor), { id: userId }] }
+      : { id: userId },
+  });
 
   if (!existingUser) {
     throw new ApiError(404, "User not found.");
@@ -263,10 +315,10 @@ async function updateUser({ actor, userId, data }) {
     data.laboratoryId !== existingUser.laboratoryId;
 
   if (isChangingRole || isChangingLab) {
-    if (actor && actor.role !== "SUPERADMIN") {
+    if (actor?.role !== "SUPERADMIN") {
       throw new ApiError(
         403,
-        "Only SUPERADMIN users can change roles or laboratory assignments."
+        "LAB_ADMIN users cannot change roles or laboratory assignments."
       );
     }
 
@@ -315,9 +367,21 @@ async function setUserStatus({ actor, userId, isActive }) {
     });
   }
 
+  assertUserManagementAccess(actor);
+
   try {
+    const target = await prisma.user.findFirst({
+      where: actor.role === "LAB_ADMIN"
+        ? { AND: [laboratoryStaffWhere(actor), { id: userId }] }
+        : { id: userId },
+      select: { id: true },
+    });
+    if (!target) {
+      throw new ApiError(404, "User not found.");
+    }
+
     const updated = await prisma.user.update({
-      where: { id: userId },
+      where: { id: target.id },
       data: { isActive },
       select: userSelect,
     });

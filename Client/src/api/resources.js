@@ -40,6 +40,11 @@ const adminResource = (path) => ({
 export const laboratoriesApi = { ...adminResource("/admin/laboratories") };
 delete laboratoriesApi.remove;
 
+export const laboratorySettingsApi = {
+  get: () => client.get("/laboratory-settings"),
+  update: (data) => client.patch("/laboratory-settings", data),
+};
+
 export const adminUsersApi = { ...adminResource("/admin/users") };
 delete adminUsersApi.remove;
 

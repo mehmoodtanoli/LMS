@@ -26,6 +26,7 @@ import Laboratories, {
 import Tests, { TestForm, TestDetail } from "./pages/Tests";
 
 import Users, { UserForm, UserDetail } from "./pages/Users";
+import LaboratorySettings from "./pages/LaboratorySettings";
 
 export default function App() {
   return (
@@ -78,6 +79,10 @@ export default function App() {
             <Route path="/admin/tests/new" element={<TestForm />} />
             <Route path="/admin/tests/:id" element={<TestDetail />} />
             <Route path="/admin/tests/:id/edit" element={<TestForm />} />
+          </Route>
+
+          <Route element={<RequireRole role="LAB_ADMIN" />}>
+            <Route path="/settings" element={<LaboratorySettings />} />
           </Route>
         </Route>
       </Route>

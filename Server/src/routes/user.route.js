@@ -11,7 +11,7 @@ import {
 
 const router = Router();
 
-router.use(authMiddleware, requireRole("SUPERADMIN"));
+router.use(authMiddleware, requireRole("SUPERADMIN", "LAB_ADMIN"));
 
 router.post("/", asyncHandler(create));
 router.get("/", asyncHandler(list));

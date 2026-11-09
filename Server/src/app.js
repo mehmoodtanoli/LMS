@@ -13,6 +13,7 @@ import resultRouter from "./routes/result.route.js";
 import reportRouter from "./routes/report.route.js";
 import paymentRouter from "./routes/payment.route.js";
 import laboratoryRouter from "./routes/laboratory.route.js";
+import laboratorySettingsRouter from "./routes/laboratory-settings.route.js";
 import userRouter from "./routes/user.route.js";
 import dashboardRouter from "./routes/dashboard.route.js";
 import prisma from "./config/prisma.js";
@@ -70,6 +71,7 @@ app.use("/api/results", resultRouter);
 app.use("/api/reports", reportRouter);
 app.use("/api/payments", paymentRouter);
 app.use("/api/admin/laboratories", laboratoryRouter);
+app.use("/api/laboratory-settings", laboratorySettingsRouter);
 app.use("/api/admin/users", userRouter);
 app.use("/api/admin/dashboard", dashboardRouter);
 

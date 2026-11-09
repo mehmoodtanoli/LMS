@@ -18,7 +18,7 @@ const create = async (req, res) => {
 };
 
 const list = async (req, res) => {
-  const result = await listUsers({ query: req.query });
+  const result = await listUsers({ actor: req.user, query: req.query });
 
   const response = new ApiResponse(
     200,
@@ -31,7 +31,7 @@ const list = async (req, res) => {
 };
 
 const getById = async (req, res) => {
-  const user = await getUserById({ userId: req.params.id });
+  const user = await getUserById({ actor: req.user, userId: req.params.id });
 
   const response = new ApiResponse(200, "User fetched successfully.", {
     user,
