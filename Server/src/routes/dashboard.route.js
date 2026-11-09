@@ -5,7 +5,7 @@ import { getSummary } from "../controllers/dashboard.controller.js";
 
 const router = Router();
 
-router.use(authMiddleware, requireRole("SUPERADMIN"));
+router.use(authMiddleware, requireRole("SUPERADMIN", "LAB_ADMIN"));
 
 router.get("/", asyncHandler(getSummary));
 

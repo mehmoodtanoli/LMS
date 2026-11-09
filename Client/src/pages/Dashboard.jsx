@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Clock,
@@ -11,12 +11,7 @@ import {
   FileCheck,
 } from "lucide-react";
 import {
-  ordersApi,
-  patientsApi,
-  paymentsApi,
-  reportsApi,
-  resultsApi,
-  testsApi,
+  adminDashboardApi,
 } from "../api/resources";
 import { apiError } from "../api/client";
 import { Loading, ErrorMessage } from "../components/Common";
@@ -32,17 +27,6 @@ function getFormattedToday() {
   ];
   return `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
 }
-
-const isToday = (value) => {
-  if (!value) return false;
-  const date = new Date(value);
-  const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
-};
 
 function formatTime(isoString) {
   if (!isoString) return "13:30";
@@ -62,67 +46,28 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
 
-  const all = { page: 1, limit: 100 };
-
   useEffect(() => {
-    Promise.all([
-      patientsApi.list(all),
-      ordersApi.list(all),
-      resultsApi.list(all),
-      reportsApi.list(all),
-      paymentsApi.list(all),
-      testsApi.list(all).catch(() => ({ data: { tests: [] } })),
-    ])
-      .then(([patients, orders, results, reports, payments, tests]) => {
-        setData({
-          patients: patients.data.patients || [],
-          orders: orders.data.orders || [],
-          results: results.data.results || [],
-          reports: reports.data.reports || [],
-          payments: payments.data.payments || [],
-          tests: tests.data.tests || [],
-        });
-      })
+    adminDashboardApi
+      .summary()
+      .then((response) => setData(response.data))
       .catch((e) => setError(apiError(e)));
   }, []);
 
   if (error) return <ErrorMessage error={error} />;
   if (!data) return <Loading text="Loading dashboard…" />;
 
-  // Calculate metrics
-  const pendingResults = data.results.filter(
-    (r) => !r.status || r.status === "PENDING"
-  ).length || data.orders.filter((o) => o.status === "PENDING" || o.status === "IN_PROGRESS").length || 6;
+  const {
+    pendingResults,
+    unpaidOrdersAmount,
+    patientsToday,
+    ordersToday,
+    reportsFinalizedToday,
+    testsInCatalog,
+    totalRevenueCollected,
+  } = data;
 
-  const paidOrderIds = new Set(
-    data.payments
-      .filter((p) => p.status === "PAID")
-      .map((p) => p.orderId)
-  );
-  const unpaidOrders = data.orders.filter(
-    (o) => !paidOrderIds.has(o.id) && o.status !== "CANCELLED"
-  ).length;
-
-  const patientsToday = data.patients.filter((p) => isToday(p.createdAt)).length;
-  const ordersToday = data.orders.filter((o) => isToday(o.createdAt)).length;
-  const reportsFinalizedToday = data.reports.filter(
-    (r) => (r.status === "FINALIZED" || r.status === "COMPLETED") && isToday(r.createdAt)
-  ).length;
-
-  const testsInCatalog = data.tests.length || 7;
-
-  // Calculate total revenue
-  const totalRevenue = data.payments.reduce((acc, p) => {
-    return acc + (p.status === "PAID" ? Number(p.amount || 0) : 0);
-  }, 0) || 8600;
-
-  // Recent orders
-  const recentOrders = data.orders.slice(0, 5);
-
-  // Active work items (pending or in progress)
-  const activeWorkOrders = data.orders
-    .filter((o) => o.status === "IN_PROGRESS" || o.status === "PENDING")
-    .slice(0, 4);
+  const recentOrders = data.recentOrders || [];
+  const activeWorkOrders = data.activeWorkOrders || [];
 
   return (
     <div className="dashboard-page">
@@ -151,7 +96,7 @@ export default function Dashboard() {
             <span className="stat-label">Unpaid Orders</span>
             <span className="currency-symbol-icon">Rs</span>
           </div>
-          <div className="stat-value">{unpaidOrders}</div>
+          <div className="stat-value">Rs {Number(unpaidOrdersAmount || 0).toLocaleString()}</div>
         </div>
 
         {/* Card 3: Today's Patients */}
@@ -205,7 +150,7 @@ export default function Dashboard() {
               <span className="stat-label">Total Revenue Collected</span>
             </div>
           </div>
-          <div className="stat-value">Rs {totalRevenue.toLocaleString()}</div>
+          <div className="stat-value">Rs {Number(totalRevenueCollected || 0).toLocaleString()}</div>
         </div>
       </div>
 
