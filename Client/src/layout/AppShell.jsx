@@ -1,6 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { XpertLabLogo } from "../components/XpertLogo";
 import {
   FlaskConical,
   LayoutDashboard,
@@ -45,6 +44,12 @@ export default function AppShell() {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  const laboratory =
+    user?.role === "SUPERADMIN" ? null : user?.laboratory || null;
+  const laboratoryLogo = laboratory?.logo || laboratory?.logoUrl;
+  const laboratoryAddress = laboratory?.address;
+  const laboratoryContact = laboratory?.phone || laboratory?.contactNumber;
+  const laboratoryEmail = laboratory?.email || laboratory?.contactEmail;
 
   return (
     <div className="app-shell">
@@ -52,11 +57,21 @@ export default function AppShell() {
         {/* Brand Header */}
         <div className="brand">
           <div className="brand-icon-box" style={{ background: "#0e2c4d", border: "1px solid rgba(56, 189, 248, 0.25)" }}>
-            <XpertLabLogo size={24} color="#38bdf8" />
+            {laboratoryLogo ? (
+              <img
+                src={laboratoryLogo}
+                alt=""
+                style={{ width: "24px", height: "24px", objectFit: "contain" }}
+              />
+            ) : (
+              <Activity size={24} color="#38bdf8" />
+            )}
           </div>
           <div className="brand-text">
-            <span className="brand-title">Xpert Clinical Laboratory</span>
-            <span className="brand-subtitle">Accurate · Caring · Instant</span>
+            <span className="brand-title">
+              {laboratory?.name || "Laboratory Management System"}
+            </span>
+            <span className="brand-subtitle">Simplifying Laboratory Management</span>
           </div>
         </div>
 
@@ -113,10 +128,18 @@ export default function AppShell() {
 
         {/* Sidebar Footer */}
         <div className="sidebar-footer">
-          <div className="sidebar-address">
-            <p>Al Haider Plaza Opp: INOR Gate, Mansehra Road Abbottabad</p>
-            <p>Contact: 0992634625 · xpertlab70@gmail.com</p>
-          </div>
+          {(laboratoryAddress || laboratoryContact || laboratoryEmail) && (
+            <div className="sidebar-address">
+              {laboratoryAddress && <p>{laboratoryAddress}</p>}
+              {(laboratoryContact || laboratoryEmail) && (
+                <p>
+                  {laboratoryContact && `Contact: ${laboratoryContact}`}
+                  {laboratoryContact && laboratoryEmail && " · "}
+                  {laboratoryEmail}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="sidebar-user">
             <div className="user-avatar-badge" title={user?.email}>
