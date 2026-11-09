@@ -8,7 +8,6 @@ import { apiError } from "../api/client";
 
 import { ErrorMessage } from "../components/Common";
 import { Activity } from "lucide-react";
-import { XpertLabLogo } from "../components/XpertLogo";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -45,11 +44,10 @@ export default function Login() {
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand-header" style={{ textAlign: "center", marginBottom: "20px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "56px", height: "56px", borderRadius: "14px", background: "#0e2c4d", border: "1px solid rgba(56, 189, 248, 0.25)", margin: "0 auto 12px" }}>
-            <XpertLabLogo size={36} color="#38bdf8" />
+            <Activity size={36} color="#38bdf8" />
           </div>
-          <h2 style={{ fontSize: "1.35rem", fontWeight: 700, margin: "0 0 4px", color: "var(--text-primary)" }}>Xpert Clinical Laboratory</h2>
-          <p style={{ fontSize: "0.82rem", color: "#38bdf8", fontWeight: 600, letterSpacing: "0.06em", margin: "0 0 6px" }}>ACCURATE · CARING · INSTANT</p>
-          <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)", margin: 0 }}>Al Haider Plaza Opp: INOR Gate, Mansehra Road Abbottabad</p>
+          <h2 style={{ fontSize: "1.35rem", fontWeight: 700, margin: "0 0 4px", color: "var(--text-primary)" }}>Laboratory Management System</h2>
+          <p style={{ fontSize: "0.82rem", color: "#38bdf8", fontWeight: 600, letterSpacing: "0.06em", margin: "0 0 6px" }}>Simplifying Laboratory Management</p>
         </div>
 
         <h1 style={{ marginTop: "24px" }}>Sign in</h1>
