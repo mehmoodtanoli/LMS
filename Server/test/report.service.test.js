@@ -154,3 +154,54 @@ test("LAB_TECH users can proceed with draft report preparation", async () => {
     prisma.testOrder.findFirst = originalFindFirst;
   }
 });
+
+test("createReport returns existing FINAL report on retry (idempotent)", async () => {
+  const orderId = "00000000-0000-0000-0000-000000000020";
+  const originalFindFirst = prisma.testOrder.findFirst;
+  const originalTransaction = prisma.$transaction;
+
+  prisma.testOrder.findFirst = async () => ({
+    id: orderId,
+    laboratoryId: "00000000-0000-0000-0000-000000000001",
+    status: "COMPLETED",
+    notes: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    laboratory: { id: "00000000-0000-0000-0000-000000000001", name: "Lab" },
+    patient: { id: "p1", name: "A", fullName: "A", cnic: null, phone: null, age: 1, ageUnit: "YEARS", gender: "MALE", address: null, laboratoryId: "00000000-0000-0000-0000-000000000001" },
+    orderedTestItems: [
+      {
+        id: "i1",
+        price: 0,
+        notes: null,
+        testDefinition: { id: "t1", code: "T", name: "Test", price: 0, laboratoryId: null, parameters: [] },
+        result: { id: "r1", status: "FINALIZED", value: "ok", unit: null, referenceRange: null, interpretation: null, notes: null, finalizedAt: new Date(), finalizedById: null, createdAt: new Date(), updatedAt: new Date() },
+      },
+    ],
+  });
+
+  const existingFinal = { id: "rep-final", status: "FINAL", version: 1, orderId };
+  let created = 0;
+  prisma.$transaction = async (callback) =>
+    callback({
+      report: {
+        findFirst: async () => ({ id: "rep-final", version: 1, status: "FINAL" }),
+        findUnique: async () => existingFinal,
+        update: async () => { throw new Error("should not supersede on idempotent retry"); },
+        create: async () => { created += 1; return { id: "new" }; },
+      },
+      auditLog: { create: async () => ({}) },
+    });
+
+  try {
+    const report = await createReport({
+      user: { id: "u1", role: "LAB_ADMIN", laboratoryId: "00000000-0000-0000-0000-000000000001" },
+      data: { orderId, status: "FINAL" },
+    });
+    assert.equal(report.id, "rep-final");
+    assert.equal(created, 0);
+  } finally {
+    prisma.testOrder.findFirst = originalFindFirst;
+    prisma.$transaction = originalTransaction;
+  }
+});

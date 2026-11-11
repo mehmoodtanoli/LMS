@@ -7,6 +7,7 @@ import {
   normalizeOptionalString,
 } from "../utils/validators.js";
 import { recordAuditLog } from "../utils/audit.js";
+import { hasCompleteResult, buildReportSnapshot } from "./report.service.js";
 
 const VALID_RESULT_STATUSES = [
   "PENDING",
@@ -328,6 +329,10 @@ async function createResult({ user, data }) {
         details: { status: result.status },
       });
 
+      if (result.status === "FINALIZED") {
+        await ensureFinalReportForOrder(tx, user, result.orderedTestItem.order.id);
+      }
+
       return result;
     });
   } catch (error) {
@@ -414,6 +419,149 @@ async function getResultById({ user, resultId }) {
   }
 
   return result;
+}
+
+async function ensureFinalReportForOrder(tx, user, orderId) {
+  await tx.$queryRaw`SELECT id FROM "test_orders" WHERE id = ${orderId}::uuid FOR UPDATE`;
+
+  const order = await tx.testOrder.findUnique({
+    where: { id: orderId },
+    select: {
+      id: true,
+      laboratoryId: true,
+      status: true,
+      notes: true,
+      createdAt: true,
+      updatedAt: true,
+      laboratory: {
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          phone: true,
+          email: true,
+          logoUrl: true,
+          tagline: true,
+        },
+      },
+      patient: {
+        select: {
+          id: true,
+          name: true,
+          fullName: true,
+          cnic: true,
+          phone: true,
+          age: true,
+          ageUnit: true,
+          gender: true,
+          address: true,
+          laboratoryId: true,
+        },
+      },
+      orderedTestItems: {
+        select: {
+          id: true,
+          price: true,
+          notes: true,
+          testDefinition: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              price: true,
+              laboratoryId: true,
+              parameters: {
+                orderBy: { order: "asc" },
+                select: {
+                  id: true,
+                  name: true,
+                  unit: true,
+                  referenceRange: true,
+                  order: true,
+                },
+              },
+            },
+          },
+          result: {
+            select: {
+              id: true,
+              status: true,
+              value: true,
+              unit: true,
+              referenceRange: true,
+              interpretation: true,
+              notes: true,
+              finalizedAt: true,
+              finalizedById: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!order || order.status === "CANCELLED" || !order.orderedTestItems?.length) {
+    return null;
+  }
+
+  const allComplete = order.orderedTestItems.every((item) => hasCompleteResult(item));
+  if (!allComplete) return null;
+
+  const latestReport = await tx.report.findFirst({
+    where: { orderId },
+    orderBy: { version: "desc" },
+    select: { id: true, version: true, status: true },
+  });
+
+  if (latestReport?.status === "FINAL") {
+    return latestReport;
+  }
+
+  if (user.role === "LAB_TECH") {
+    // LAB_TECH may finalize individual results, but must not authorize/create FINAL reports.
+    // Skip auto FINAL report creation; result finalization remains valid.
+    return null;
+  }
+
+  const nextVersion = latestReport ? latestReport.version + 1 : 1;
+  const snapshot = buildReportSnapshot(order);
+
+  if (latestReport) {
+    await tx.report.update({
+      where: { id: latestReport.id },
+      data: { status: "SUPERSEDED" },
+    });
+  }
+
+  const report = await tx.report.create({
+    data: {
+      laboratoryId: order.laboratoryId,
+      orderId,
+      version: nextVersion,
+      previousReportId: latestReport ? latestReport.id : null,
+      snapshot,
+      status: "FINAL",
+    },
+  });
+
+  await recordAuditLog({
+    db: tx,
+    laboratoryId: order.laboratoryId,
+    userId: user.id,
+    action: "REPORT_CREATED",
+    entity: "Report",
+    entityId: report.id,
+    details: {
+      orderId,
+      version: nextVersion,
+      status: "FINAL",
+      trigger: "RESULT_FINALIZATION",
+    },
+  });
+
+  return report;
 }
 
 async function updateResult({ user, resultId, data }) {
@@ -550,6 +698,11 @@ async function updateResult({ user, resultId, data }) {
           reason: data.amendmentReason || null,
         },
       });
+
+      if (updatedResult.status === "FINALIZED") {
+        await ensureFinalReportForOrder(tx, user, updatedResult.orderedTestItem.order.id);
+      }
+
       return updatedResult;
     });
 

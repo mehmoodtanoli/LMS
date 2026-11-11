@@ -425,6 +425,14 @@ async function createReport({ user, data }) {
         },
       });
 
+      // Idempotent finalize: do not create duplicate FINAL reports when retrying
+      if (targetStatus === "FINAL" && latestReport?.status === "FINAL") {
+        return await tx.report.findUnique({
+          where: { id: latestReport.id },
+          select: REPORT_SELECT,
+        });
+      }
+
       // Report Integrity Guard 3: Version 1 cannot start as AMENDED (Fixes A5)
       if (targetStatus === "AMENDED" && !latestReport) {
         throw new ApiError(
