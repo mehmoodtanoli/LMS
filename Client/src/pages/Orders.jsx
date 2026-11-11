@@ -14,35 +14,6 @@ import {
   AlertCircle,
 } from "lucide-react";
 
-// Test catalog pricing map for realistic laboratory invoicing
-const TEST_PRICES = {
-  CBC: 800,
-  LFT: 1500,
-  RFT: 1200,
-  LIPID: 1000,
-  FBS: 300,
-  URINE: 400,
-  TFT: 1800,
-  HBA1C: 1200,
-  CRP: 900,
-  FERRITIN: 1400,
-  "BETA-HCG": 1600,
-  PT: 700,
-  APTT: 800,
-  INR: 700,
-};
-
-function getTestPrice(test) {
-  if (test?.price !== undefined && test?.price !== null && Number(test.price) > 0) {
-    return Number(test.price);
-  }
-  const code = (test?.code || "").toUpperCase();
-  for (const [key, price] of Object.entries(TEST_PRICES)) {
-    if (code.includes(key)) return price;
-  }
-  return 800 + ((test?.parameters?.length || 2) * 80);
-}
-
 function getTestCategory(test) {
   const code = (test?.code || "").toUpperCase();
   const name = (test?.name || "").toLowerCase();
@@ -79,19 +50,6 @@ function getDoctorName(order, index) {
     "Dr. Tariq Javed",
   ];
   return defaultDoctors[index % defaultDoctors.length];
-}
-
-function getOrderAmount(order) {
-  const items = order.orderedTestItems || [];
-  let total = 0;
-  for (const item of items) {
-    if (item.price !== undefined && item.price !== null) {
-      total += Number(item.price);
-    } else {
-      total += getTestPrice(item.testDefinition);
-    }
-  }
-  return total;
 }
 
 function getInitials(name) {
@@ -234,17 +192,12 @@ export default function Orders() {
         .filter(Boolean)
         .join(" | ");
 
-      // Create orders for selected tests
-      await Promise.all(
-        modalSelectedTests.map((testDefinitionId) =>
-          ordersApi.create({
-            patientId: modalPatientId,
-            testDefinitionId,
-            status: "PENDING",
-            ...(combinedNotes ? { notes: combinedNotes } : {}),
-          })
-        )
-      );
+      await ordersApi.create({
+        patientId: modalPatientId,
+        testDefinitionIds: modalSelectedTests,
+        status: "PENDING",
+        ...(combinedNotes ? { notes: combinedNotes } : {}),
+      });
 
       trackAnalyticsEvent("test_order_created", {
         test_count: modalSelectedTests.length,
@@ -361,9 +314,10 @@ export default function Orders() {
                 const initials = getInitials(pName);
                 const doctor = getDoctorName(order, idx);
                 const testItems = order.orderedTestItems || [];
-                const amount = getOrderAmount(order);
-                const hasDiscount = idx % 2 === 0;
-                const discount = hasDiscount ? (idx % 4 === 0 ? 200 : 100) : 0;
+                const amount =
+                  order.totalAmount === null || order.totalAmount === undefined
+                    ? null
+                    : Number(order.totalAmount);
                 const status = (order.status || "PENDING").toUpperCase();
 
                 // Status presentation
@@ -432,11 +386,10 @@ export default function Orders() {
                     <td className="cell-amount">
                       <div className="amount-box">
                         <span className="amount-val">
-                          Rs {amount.toLocaleString()}
+                          {amount === null
+                            ? "Bill not finalized"
+                            : `Rs ${amount.toLocaleString()}`}
                         </span>
-                        {discount > 0 && (
-                          <span className="discount-val">-Rs {discount}</span>
-                        )}
                       </div>
                     </td>
 
@@ -571,7 +524,6 @@ export default function Orders() {
                     const isChecked = modalSelectedTests.includes(test.id);
                     const category = getTestCategory(test);
                     const paramCount = test.parameters?.length || 2;
-                    const price = getTestPrice(test);
 
                     return (
                       <div
@@ -595,9 +547,7 @@ export default function Orders() {
                             {paramCount === 1 ? "" : "s"}
                           </span>
                         </div>
-                        <div className="test-price-col">
-                          Rs {price.toLocaleString()}
-                        </div>
+                        <div className="test-price-col">Bill set at payment</div>
                       </div>
                     );
                   })}

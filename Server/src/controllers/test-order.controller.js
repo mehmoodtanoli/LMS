@@ -6,6 +6,10 @@ import {
   updateTestOrder,
   deleteTestOrder,
 } from "../services/test-order.service.js";
+import {
+  finalizeOrderBill,
+  getOrderBilling,
+} from "../services/payment.service.js";
 
 const create = async (req, res) => {
   const order = await createTestOrder({ user: req.user, data: req.body });
@@ -66,4 +70,22 @@ const remove = async (req, res) => {
   return res.status(200).json(response);
 };
 
-export { create, list, getById, update, remove };
+const finalizeBill = async (req, res) => {
+  await finalizeOrderBill({
+    user: req.user,
+    orderId: req.params.id,
+    totalAmount: req.body.totalAmount,
+  });
+  const billing = await getOrderBilling({
+    user: req.user,
+    orderId: req.params.id,
+  });
+
+  const response = new ApiResponse(200, "Bill finalized successfully.", {
+    billing,
+  });
+
+  return res.status(200).json(response);
+};
+
+export { create, list, getById, update, remove, finalizeBill };

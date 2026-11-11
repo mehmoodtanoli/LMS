@@ -79,7 +79,7 @@ function buildTestData(data) {
     testData.description = description ?? null;
   }
 
-  // Accept and validate test price (Fixes A1)
+  // Preserve catalog price for compatibility; it is not used for billing.
   if (data.price !== undefined) {
     if (data.price === null || data.price === "") {
       testData.price = 0;

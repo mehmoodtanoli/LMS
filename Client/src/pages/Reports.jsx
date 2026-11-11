@@ -200,10 +200,11 @@ export default function Reports() {
         const order = rep.order || orders.find((o) => o.id === rep.orderId);
         const pat = rep.snapshot?.patient || order?.patient;
         const testItems = rep.snapshot?.orderedTestItems || order?.orderedTestItems || [];
-        const totalAmount = testItems.reduce(
-          (sum, item) => sum + Number(item.price || item.testDefinition?.price || 0),
-          0
-        );
+        const totalAmount =
+          rep.snapshot?.order?.totalAmount ??
+          rep.order?.totalAmount ??
+          order?.totalAmount ??
+          null;
         return {
           id: rep.id,
           reportId: rep.id,
@@ -345,7 +346,9 @@ export default function Reports() {
                     </td>
                     <td className="cell-amount">
                       <span className="amount-val">
-                        Rs {report.amount.toLocaleString()}
+                        {report.amount === null
+                          ? "Bill not finalized"
+                          : `Rs ${Number(report.amount).toLocaleString()}`}
                       </span>
                     </td>
                     <td className="cell-created">{finalizedStr}</td>

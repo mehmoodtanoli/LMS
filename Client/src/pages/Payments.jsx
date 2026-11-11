@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { ordersApi, paymentsApi } from "../api/resources";
 import { apiError } from "../api/client";
 import { trackAnalyticsEvent } from "../analytics";
+import { useAuth } from "../auth/AuthContext";
 import { Empty, ErrorMessage, Loading, date, patientName } from "../components/Common";
 import { Plus, CreditCard, Search, X, Check, ArrowDownLeft, Clock, AlertCircle } from "lucide-react";
 
@@ -13,13 +14,18 @@ function getInitials(name) {
 }
 
 export default function Payments() {
+  const { user } = useAuth();
+  const canRecordPayments = user?.role === "LAB_ADMIN" || user?.role === "SUPERADMIN";
+  const canFinalizeBills = user?.role === "LAB_ADMIN";
   const [payments, setPayments] = useState([]);
   const [orders, setOrders] = useState([]);
   const [selectedBilling, setSelectedBilling] = useState(null);
   const [loadingBilling, setLoadingBilling] = useState(false);
   const [form, setForm] = useState({
     orderId: "",
+    orderTotalAmount: "",
     amount: "",
+    method: "CASH",
     paidAt: new Date().toISOString().split("T")[0],
     notes: "",
   });
@@ -57,11 +63,11 @@ export default function Payments() {
       const res = await paymentsApi.billing(orderId);
       const billing = res.data.billing;
       setSelectedBilling(billing);
-      if (billing && billing.remainingAmount > 0) {
+      if (billing && billing.remainingAmount !== null && billing.remainingAmount > 0) {
         setForm((prev) => ({ ...prev, amount: String(billing.remainingAmount) }));
       }
     } catch (err) {
-      console.error("Failed to load order billing:", err);
+      setError(apiError(err));
     } finally {
       setLoadingBilling(false);
     }
@@ -72,11 +78,14 @@ export default function Payments() {
     setError("");
     setSubmitting(true);
 
-    // Omit status: server sets PAID and validates remaining balance (Fixes A3, Rule 1)
     try {
       await paymentsApi.create({
         orderId: form.orderId,
+        ...(selectedBilling?.totalAmount === null
+          ? { orderTotalAmount: Number(form.orderTotalAmount) }
+          : {}),
         amount: Number(form.amount),
+        method: form.method,
         ...(form.paidAt ? { paidAt: form.paidAt } : {}),
         ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
       });
@@ -85,12 +94,32 @@ export default function Payments() {
 
       setForm({
         orderId: "",
+        orderTotalAmount: "",
         amount: "",
+        method: "CASH",
         paidAt: new Date().toISOString().split("T")[0],
         notes: "",
       });
       setSelectedBilling(null);
       setIsModalOpen(false);
+      load();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const finalizeBill = async () => {
+    setError("");
+    setSubmitting(true);
+
+    try {
+      const response = await ordersApi.finalizeBill(form.orderId, {
+        totalAmount: Number(form.orderTotalAmount),
+      });
+      setSelectedBilling(response.data.billing);
+      setForm((prev) => ({ ...prev, orderTotalAmount: "" }));
       load();
     } catch (err) {
       setError(apiError(err));
@@ -142,7 +171,7 @@ export default function Payments() {
           }}
         >
           <Plus size={16} />
-          <span>Record Payment</span>
+          <span>{canRecordPayments ? "Record Payment" : "View Billing"}</span>
         </button>
       </header>
 
@@ -348,8 +377,12 @@ export default function Payments() {
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                    <span style={{ color: "#64748b" }}>Order Total:</span>
-                    <strong>Rs {selectedBilling.totalAmount.toLocaleString()}</strong>
+                    <span style={{ color: "#64748b" }}>Final Bill Amount:</span>
+                    <strong>
+                      {selectedBilling.totalAmount === null
+                        ? "Not finalized"
+                        : `Rs ${Number(selectedBilling.totalAmount).toLocaleString()}`}
+                    </strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
                     <span style={{ color: "#64748b" }}>Already Paid:</span>
@@ -366,17 +399,19 @@ export default function Payments() {
                       marginTop: "6px",
                     }}
                   >
-                    <span style={{ fontWeight: 600, color: "#1e293b" }}>Remaining Balance Due:</span>
+                    <span style={{ fontWeight: 600, color: "#1e293b" }}>Remaining Balance:</span>
                     <strong
                       style={{
-                        color: selectedBilling.remainingAmount > 0 ? "#dc2626" : "#16a34a",
+                        color: selectedBilling.remainingAmount === null || selectedBilling.remainingAmount > 0 ? "#dc2626" : "#16a34a",
                         fontSize: "0.95rem",
                       }}
                     >
-                      Rs {selectedBilling.remainingAmount.toLocaleString()}
+                      {selectedBilling.remainingAmount === null
+                        ? "Bill not finalized"
+                        : `Rs ${Number(selectedBilling.remainingAmount).toLocaleString()}`}
                     </strong>
                   </div>
-                  {selectedBilling.remainingAmount <= 0 && (
+                  {selectedBilling.remainingAmount !== null && selectedBilling.remainingAmount <= 0 && (
                     <div
                       style={{
                         marginTop: "8px",
@@ -392,6 +427,51 @@ export default function Payments() {
                       <span>This order has already been paid in full.</span>
                     </div>
                   )}
+
+                  {selectedBilling?.payments?.length > 0 && (
+                    <div className="form-group-clean">
+                      <label>Payment History</label>
+                      <div style={{ display: "grid", gap: "6px" }}>
+                        {selectedBilling.payments.map((payment) => (
+                          <div
+                            key={payment.id}
+                            style={{ display: "flex", justifyContent: "space-between", color: "#475569" }}
+                          >
+                            <span>{date(payment.paidAt)} · {payment.method || "CASH"}</span>
+                            <strong>Rs {Number(payment.amount).toLocaleString()}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedBilling?.totalAmount === null && canRecordPayments && (
+                    <div className="form-group-clean">
+                      <label>
+                        Total Bill Amount (Rs) <span className="required-star">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min="0.01"
+                        step="0.01"
+                        value={form.orderTotalAmount}
+                        onChange={(e) => setForm({ ...form, orderTotalAmount: e.target.value })}
+                        placeholder="Enter the final bill amount"
+                      />
+                      {canFinalizeBills && (
+                        <button
+                          type="button"
+                          className="btn-primary-action"
+                          disabled={submitting || !form.orderTotalAmount}
+                          onClick={finalizeBill}
+                          style={{ marginTop: "8px" }}
+                        >
+                          {submitting ? "Finalizing…" : "Finalize Bill"}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -402,8 +482,9 @@ export default function Payments() {
                 <input
                   type="number"
                   required
+                  disabled={!canRecordPayments}
                   min="1"
-                  max={selectedBilling && selectedBilling.totalAmount > 0 ? selectedBilling.remainingAmount : undefined}
+                  max={selectedBilling?.remainingAmount !== null ? selectedBilling?.remainingAmount : undefined}
                   step="0.01"
                   placeholder="e.g. 1500"
                   value={form.amount}
@@ -417,9 +498,24 @@ export default function Payments() {
               </div>
 
               <div className="form-group-clean">
+                <label>Payment Method</label>
+                <select
+                  value={form.method}
+                  disabled={!canRecordPayments}
+                  onChange={(e) => setForm({ ...form, method: e.target.value })}
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="CARD">Card</option>
+                  <option value="BANK_TRANSFER">Bank transfer</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+
+              <div className="form-group-clean">
                 <label>Payment Date</label>
                 <input
                   type="date"
+                  disabled={!canRecordPayments}
                   value={form.paidAt}
                   onChange={(e) => setForm({ ...form, paidAt: e.target.value })}
                 />
@@ -430,26 +526,27 @@ export default function Payments() {
                 <input
                   type="text"
                   placeholder="e.g. Paid in cash at reception"
+                  disabled={!canRecordPayments}
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 />
               </div>
 
               <div className="modal-actions-clean">
-                <button
+                {canRecordPayments && <button
                   type="button"
                   className="btn-cancel"
                   onClick={() => setIsModalOpen(false)}
                 >
                   Cancel
-                </button>
+                </button>}
                 <button
                   type="submit"
                   className="btn-primary-action"
                   disabled={
                     submitting ||
                     (selectedBilling &&
-                      selectedBilling.totalAmount > 0 &&
+                      selectedBilling.remainingAmount !== null &&
                       selectedBilling.remainingAmount <= 0)
                   }
                 >

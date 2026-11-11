@@ -21,6 +21,8 @@ const TEST_ORDER_SELECT = {
   patientId: true,
   status: true,
   notes: true,
+  totalAmount: true,
+  billFinalizedAt: true,
   createdAt: true,
   updatedAt: true,
 
@@ -169,7 +171,12 @@ function buildOrderUpdateData(data) {
 }
 
 function assertNoImmutableOverrides(data) {
-  const immutableFields = ["patientId", "laboratoryId"];
+  const immutableFields = [
+    "patientId",
+    "laboratoryId",
+    "totalAmount",
+    "billFinalizedAt",
+  ];
 
   const providedFields = immutableFields.filter(
     (field) => data[field] !== undefined
@@ -178,7 +185,7 @@ function assertNoImmutableOverrides(data) {
   if (providedFields.length > 0) {
     throw new ApiError(
       400,
-      "patientId and laboratoryId cannot be changed on an existing order.",
+      "patientId, laboratoryId, totalAmount, and billFinalizedAt cannot be changed on an existing order.",
       {
         fields: providedFields,
       }
@@ -351,7 +358,7 @@ async function createTestOrder({ user, data }) {
     patientId,
   });
 
-  // Verify all test definitions and snapshot their prices (Fixes A1, Historical Integrity)
+  // Verify test definitions for access and preserve their identities only.
   const testDefinitions = [];
   for (const testId of testDefinitionIds) {
     const testDef = await findAccessibleTestDefinition({
@@ -380,7 +387,6 @@ async function createTestOrder({ user, data }) {
         orderedTestItems: {
           create: testDefinitions.map((testDef) => ({
             testDefinitionId: testDef.id,
-            price: testDef.price || 0, // Snapshot price at order time (Fixes A1, M2)
           })),
         },
       },

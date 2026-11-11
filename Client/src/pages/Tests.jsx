@@ -70,7 +70,7 @@ export default function Tests() {
         <div>
           <h1 className="page-title">Tests Catalog</h1>
           <p className="page-subtitle">
-            Manage standardized laboratory investigation templates, pricing, and parameter ranges ({filtered.length} total)
+            Manage standardized laboratory investigation templates and parameter ranges ({filtered.length} total)
           </p>
         </div>
 
@@ -289,7 +289,7 @@ export function TestForm() {
     const data = {
       code: form.code.trim().toUpperCase(),
       name: form.name.trim(),
-      price: form.price !== "" ? Number(form.price) : 0,
+      ...(form.price !== "" ? { price: Number(form.price) } : {}),
       ...(form.description.trim()
         ? { description: form.description.trim() }
         : {}),
@@ -367,11 +367,8 @@ export function TestForm() {
           {/* Row 2: Price & Scope */}
           <div className="form-row-2col">
             <div className="form-group-clean">
-              <label>
-                Standard Price / Fee (Rs) <span className="required-star">*</span>
-              </label>
+              <label>Catalog Price (Optional, not used for billing)</label>
               <input
-                required
                 type="number"
                 min="0"
                 step="0.01"

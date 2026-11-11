@@ -10,6 +10,7 @@ import {
 import { recordAuditLog } from "../utils/audit.js";
 
 const VALID_PAYMENT_STATUSES = ["UNPAID", "PARTIALLY_PAID", "PAID", "REFUNDED"];
+const VALID_PAYMENT_METHODS = ["CASH", "CARD", "BANK_TRANSFER", "OTHER"];
 
 const PAYMENT_SELECT = {
   id: true,
@@ -17,6 +18,7 @@ const PAYMENT_SELECT = {
   orderId: true,
   status: true,
   amount: true,
+  method: true,
   paidAt: true,
   notes: true,
   createdAt: true,
@@ -33,6 +35,8 @@ const PAYMENT_SELECT = {
       status: true,
       notes: true,
       laboratoryId: true,
+      totalAmount: true,
+      billFinalizedAt: true,
       patient: {
         select: {
           id: true,
@@ -68,7 +72,26 @@ const PAYMENT_SELECT = {
 const IDEMPOTENCY_KEY_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function assertLabAdminScope(user) {
+function assertPaymentReadScope(user) {
+  if (user.role === "SUPERADMIN") {
+    return null;
+  }
+
+  if (user.role === "LAB_ADMIN" || user.role === "LAB_TECH") {
+    if (!user.laboratoryId) {
+      throw new ApiError(
+        403,
+        "User must be assigned to a laboratory before accessing payments."
+      );
+    }
+
+    return user.laboratoryId;
+  }
+
+  throw new ApiError(403, "You are not authorized to access payments.");
+}
+
+function assertPaymentWriteScope(user) {
   if (user.role === "SUPERADMIN") {
     return null;
   }
@@ -84,7 +107,22 @@ function assertLabAdminScope(user) {
     return user.laboratoryId;
   }
 
-  throw new ApiError(403, "You are not authorized to access payments.");
+  throw new ApiError(403, "Only LAB_ADMIN users can record payments.");
+}
+
+function assertBillFinalizationScope(user) {
+  if (user.role !== "LAB_ADMIN") {
+    throw new ApiError(403, "Only LAB_ADMIN users can finalize bills.");
+  }
+
+  if (!user.laboratoryId) {
+    throw new ApiError(
+      403,
+      "User must be assigned to a laboratory before finalizing bills."
+    );
+  }
+
+  return user.laboratoryId;
 }
 
 function parseMoneyToCents(value, field = "amount", allowZero = false) {
@@ -110,8 +148,19 @@ function moneyToCents(value, field = "amount", allowZero = false) {
   return parseMoneyToCents(value, field, allowZero);
 }
 
+function normalizePaymentMethod(value) {
+  const method = normalizeString(value).toUpperCase();
+  if (!method || !VALID_PAYMENT_METHODS.includes(method)) {
+    throw new ApiError(400, "method must be a valid payment method.", {
+      field: "method",
+      validValues: VALID_PAYMENT_METHODS,
+    });
+  }
+  return method;
+}
+
 function buildListWhere(user) {
-  const laboratoryId = assertLabAdminScope(user);
+  const laboratoryId = assertPaymentReadScope(user);
 
   if (laboratoryId) {
     return { laboratoryId };
@@ -174,6 +223,8 @@ function buildPaymentData(data) {
     });
   }
 
+  paymentData.method = normalizePaymentMethod(data.method || "CASH");
+
   if (data.paidAt !== undefined) {
     if (data.paidAt === null || data.paidAt === "") {
       paymentData.paidAt = new Date();
@@ -201,7 +252,7 @@ function buildPaymentData(data) {
 async function findAccessibleTestOrder({ user, orderId, db = prisma }) {
   assertUuid(orderId, "orderId");
 
-  const laboratoryId = assertLabAdminScope(user);
+  const laboratoryId = assertPaymentReadScope(user);
 
   const order = await db.testOrder.findFirst({
     where: laboratoryId
@@ -219,6 +270,8 @@ async function findAccessibleTestOrder({ user, orderId, db = prisma }) {
       notes: true,
       createdAt: true,
       updatedAt: true,
+      totalAmount: true,
+      billFinalizedAt: true,
       patient: {
         select: {
           id: true,
@@ -251,6 +304,7 @@ async function findAccessibleTestOrder({ user, orderId, db = prisma }) {
         select: {
           id: true,
           amount: true,
+          method: true,
           status: true,
           paidAt: true,
         },
@@ -268,20 +322,18 @@ async function findAccessibleTestOrder({ user, orderId, db = prisma }) {
 async function getOrderBilling({ user, orderId }) {
   const order = await findAccessibleTestOrder({ user, orderId });
 
-  let totalAmountCents = 0;
   const items = (order.orderedTestItems || []).map((item) => {
-    const itemPriceCents = item.price === null || item.price === undefined
-      ? 0
-      : moneyToCents(item.price, "ordered item price", true);
-    totalAmountCents += itemPriceCents;
     return {
       id: item.id,
       testCode: item.testDefinition?.code,
       testName: item.testDefinition?.name,
-      price: itemPriceCents / 100,
     };
   });
 
+  const totalAmountCents =
+    order.totalAmount === null || order.totalAmount === undefined
+      ? null
+      : moneyToCents(order.totalAmount, "order total", true);
   let paidAmountCents = 0;
   (order.payments || []).forEach((p) => {
     if (p.status === "PAID") {
@@ -289,20 +341,25 @@ async function getOrderBilling({ user, orderId }) {
     }
   });
 
-  const remainingAmountCents = Math.max(0, totalAmountCents - paidAmountCents);
-  let status = "UNPAID";
-  if (paidAmountCents >= totalAmountCents && totalAmountCents > 0) {
+  const remainingAmountCents =
+    totalAmountCents === null
+      ? null
+      : Math.max(0, totalAmountCents - paidAmountCents);
+  let status = totalAmountCents === null ? "UNBILLED" : "UNPAID";
+  if (totalAmountCents !== null && paidAmountCents >= totalAmountCents) {
     status = "PAID";
-  } else if (paidAmountCents > 0) {
+  } else if (totalAmountCents !== null && paidAmountCents > 0) {
     status = "PARTIALLY_PAID";
   }
 
   return {
     orderId: order.id,
     patient: order.patient,
-    totalAmount: totalAmountCents / 100,
+    totalAmount: totalAmountCents === null ? null : totalAmountCents / 100,
     paidAmount: paidAmountCents / 100,
-    remainingAmount: remainingAmountCents / 100,
+    remainingAmount:
+      remainingAmountCents === null ? null : remainingAmountCents / 100,
+    billFinalizedAt: order.billFinalizedAt,
     status,
     items,
     payments: order.payments,
@@ -310,6 +367,7 @@ async function getOrderBilling({ user, orderId }) {
 }
 
 async function createPayment({ user, data, idempotencyKey }) {
+  assertPaymentWriteScope(user);
   const orderId = normalizeString(data.orderId);
 
   if (!orderId) {
@@ -322,6 +380,11 @@ async function createPayment({ user, data, idempotencyKey }) {
     throw new ApiError(400, "amount is required.", { field: "amount" });
   }
 
+  const requestedOrderTotal =
+    data.orderTotalAmount === undefined
+      ? null
+      : moneyToCents(data.orderTotalAmount, "orderTotalAmount");
+
   const normalizedIdempotencyKey = normalizeString(idempotencyKey).toLowerCase() || randomUUID();
   if (!IDEMPOTENCY_KEY_PATTERN.test(normalizedIdempotencyKey)) {
     throw new ApiError(400, "Idempotency-Key must be a valid UUID.", {
@@ -331,8 +394,8 @@ async function createPayment({ user, data, idempotencyKey }) {
 
   try {
     return await prisma.$transaction(async (tx) => {
-      const accessibleOrder = await findAccessibleTestOrder({ user, orderId, db: tx });
       await tx.$queryRaw`SELECT id FROM "test_orders" WHERE id = ${orderId}::uuid FOR UPDATE`;
+      const accessibleOrder = await findAccessibleTestOrder({ user, orderId, db: tx });
 
       const existingPayment = await tx.payment.findUnique({
         where: { idempotencyKey: normalizedIdempotencyKey },
@@ -343,7 +406,12 @@ async function createPayment({ user, data, idempotencyKey }) {
       });
       const requestedPayload = {
         orderId,
+        orderTotalAmount:
+          requestedOrderTotal === null
+            ? null
+            : (requestedOrderTotal / 100).toFixed(2),
         amount: Number(paymentData.amount).toFixed(2),
+        method: paymentData.method,
         status: paymentData.status,
         paidAt: data.paidAt === undefined ? null : paymentData.paidAt?.toISOString() ?? null,
         notes: paymentData.notes ?? null,
@@ -369,12 +437,28 @@ async function createPayment({ user, data, idempotencyKey }) {
         },
       });
 
-      let totalOrderAmountCents = 0;
-      accessibleOrder.orderedTestItems.forEach((item) => {
-        totalOrderAmountCents += item.price === null || item.price === undefined
-          ? 0
-          : moneyToCents(item.price, "ordered item price", true);
-      });
+      const establishedTotal =
+        accessibleOrder.totalAmount === null ||
+        accessibleOrder.totalAmount === undefined
+          ? null
+          : moneyToCents(accessibleOrder.totalAmount, "order total", true);
+
+      if (establishedTotal === null && requestedOrderTotal === null) {
+        throw new ApiError(
+          400,
+          "orderTotalAmount is required when recording the first payment.",
+          { field: "orderTotalAmount" }
+        );
+      }
+
+      if (establishedTotal !== null && requestedOrderTotal !== null) {
+        throw new ApiError(
+          409,
+          "The bill has already been finalized and cannot be changed."
+        );
+      }
+
+      const totalOrderAmountCents = establishedTotal ?? requestedOrderTotal;
 
       const alreadyPaidCents = existingPayments.reduce(
         (sum, p) => sum + moneyToCents(p.amount, "payment amount"),
@@ -399,11 +483,22 @@ async function createPayment({ user, data, idempotencyKey }) {
         );
       }
 
+      if (establishedTotal === null) {
+        await tx.testOrder.update({
+          where: { id: orderId },
+          data: {
+            totalAmount: totalOrderAmountCents / 100,
+            billFinalizedAt: new Date(),
+          },
+        });
+      }
+
       const payment = await tx.payment.create({
         data: {
           laboratoryId: accessibleOrder.laboratoryId,
           orderId,
           amount: paymentData.amount,
+          method: paymentData.method,
           status: paymentData.status,
           paidAt: paymentData.paidAt,
           notes: paymentData.notes,
@@ -438,6 +533,86 @@ async function createPayment({ user, data, idempotencyKey }) {
     }
     throw error;
   }
+}
+
+async function finalizeOrderBill({ user, orderId, totalAmount }) {
+  const laboratoryId = assertBillFinalizationScope(user);
+  assertUuid(orderId, "orderId");
+  const requestedTotalCents = moneyToCents(totalAmount, "totalAmount");
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "test_orders" WHERE id = ${orderId}::uuid FOR UPDATE`;
+    const order = await findAccessibleTestOrder({ user, orderId, db: tx });
+
+    if (order.laboratoryId !== laboratoryId) {
+      throw new ApiError(403, "You are not authorized to finalize this bill.");
+    }
+
+    if (order.totalAmount !== null && order.totalAmount !== undefined) {
+      const establishedTotalCents = moneyToCents(
+        order.totalAmount,
+        "order total",
+        true
+      );
+      if (establishedTotalCents !== requestedTotalCents) {
+        throw new ApiError(
+          409,
+          "The bill has already been finalized and cannot be changed."
+        );
+      }
+
+      return order;
+    }
+
+    const existingPayments = await tx.payment.findMany({
+      where: {
+        orderId,
+        status: "PAID",
+      },
+      select: {
+        amount: true,
+      },
+    });
+    const alreadyPaidCents = existingPayments.reduce(
+      (sum, payment) => sum + moneyToCents(payment.amount, "payment amount"),
+      0
+    );
+
+    if (requestedTotalCents < alreadyPaidCents) {
+      throw new ApiError(
+        400,
+        "Final bill cannot be less than the amount already paid.",
+        {
+          totalAmount: requestedTotalCents / 100,
+          alreadyPaid: alreadyPaidCents / 100,
+        }
+      );
+    }
+
+    const finalizedAt = new Date();
+    const updatedOrder = await tx.testOrder.update({
+      where: { id: orderId },
+      data: {
+        totalAmount: requestedTotalCents / 100,
+        billFinalizedAt: finalizedAt,
+      },
+    });
+
+    await recordAuditLog({
+      laboratoryId,
+      userId: user.id,
+      action: "BILL_FINALIZED",
+      entity: "TestOrder",
+      entityId: orderId,
+      details: {
+        totalAmount: requestedTotalCents / 100,
+        alreadyPaid: alreadyPaidCents / 100,
+      },
+      db: tx,
+    });
+
+    return updatedOrder;
+  });
 }
 
 async function listPayments({ user, query }) {
@@ -521,6 +696,7 @@ async function getPaymentById({ user, paymentId }) {
 
 export {
   createPayment,
+  finalizeOrderBill,
   listPayments,
   getPaymentById,
   getOrderBilling,

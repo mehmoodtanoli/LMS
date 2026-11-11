@@ -17,6 +17,8 @@ const resource = (path) => ({
 export const patientsApi = resource("/patients");
 export const testsApi = resource("/tests");
 export const ordersApi = resource("/test-orders");
+ordersApi.finalizeBill = (orderId, data) =>
+  client.post(`/test-orders/${orderId}/billing/finalize`, data);
 export const resultsApi = {
   ...resource("/results"),
   amend: (id, data) => client.patch(`/results/${id}`, { ...data, isAmendment: true }),

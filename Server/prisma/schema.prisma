@@ -107,6 +107,8 @@ model TestOrder {
   patientId        String            @db.Uuid
   status           TestOrderStatus   @default(PENDING)
   notes            String?
+  totalAmount      Decimal?          @db.Decimal(12, 2)
+  billFinalizedAt  DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   orderedTestItems OrderedTestItem[]
@@ -184,6 +186,7 @@ model Payment {
   orderId      String        @db.Uuid
   status       PaymentStatus @default(UNPAID)
   amount       Decimal       @db.Decimal(12, 2)
+  method       PaymentMethod  @default(CASH)
   paidAt       DateTime?
   notes        String?
   idempotencyKey     String? @unique @db.Uuid
@@ -293,4 +296,11 @@ enum PaymentStatus {
   PARTIALLY_PAID
   PAID
   REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  OTHER
 }

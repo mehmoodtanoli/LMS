@@ -81,10 +81,10 @@ async function getDashboardStatistics({ user, now = new Date() }) {
       SELECT COALESCE(SUM(order_totals.total_amount - order_payments.paid_amount), 0) AS amount
       FROM (
         SELECT o."id",
-          COALESCE(SUM(oti."price"), 0) AS total_amount
+          o."totalAmount" AS total_amount
         FROM "test_orders" o
-        LEFT JOIN "ordered_test_items" oti ON oti."orderId" = o."id"
         WHERE o."status" <> 'CANCELLED'
+          AND o."totalAmount" IS NOT NULL
           ${unpaidScope}
         GROUP BY o."id"
       ) order_totals

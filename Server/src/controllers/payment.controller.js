@@ -12,9 +12,14 @@ const create = async (req, res) => {
     data: req.body,
     idempotencyKey: req.get("Idempotency-Key"),
   });
+  const billing = await getOrderBilling({
+    user: req.user,
+    orderId: payment.orderId,
+  });
 
   const response = new ApiResponse(201, "Payment created successfully.", {
     payment,
+    billing,
   });
 
   return res.status(201).json(response);
