@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import {
   FlaskConical,
@@ -12,6 +13,9 @@ import {
   LogOut,
   ShieldAlert,
   Settings,
+  LifeBuoy,
+  Menu,
+  X,
 } from "lucide-react";
 
 const links = [
@@ -32,11 +36,34 @@ const adminLinks = [
 export default function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const closeMobileNav = () => setMobileNavOpen(false);
 
   const handleLogout = () => {
+    closeMobileNav();
     logout();
     navigate("/login");
   };
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [mobileNavOpen]);
 
   const userDisplayName = user?.name || user?.email?.split("@")[0] || "Staff Member";
   const userInitials = (userDisplayName || "US")
@@ -53,8 +80,29 @@ export default function AppShell() {
   const laboratoryEmail = laboratory?.email || laboratory?.contactEmail;
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell ${mobileNavOpen ? "mobile-nav-open" : ""}`}>
+      <button
+        type="button"
+        className="mobile-nav-trigger"
+        aria-label={mobileNavOpen ? "Close navigation menu" : "Open navigation menu"}
+        aria-expanded={mobileNavOpen}
+        aria-controls="app-sidebar"
+        onClick={() => setMobileNavOpen((open) => !open)}
+      >
+        {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
+      </button>
+
+      <div
+        className={`sidebar-backdrop ${mobileNavOpen ? "open" : ""}`}
+        aria-hidden="true"
+        onClick={closeMobileNav}
+      />
+
+      <aside
+        id="app-sidebar"
+        className={`sidebar ${mobileNavOpen ? "open" : ""}`}
+        aria-label="Primary sidebar"
+      >
         {/* Brand Header */}
         <div className="brand">
           <div className="brand-icon-box" style={{ background: "#0e2c4d", border: "1px solid rgba(56, 189, 248, 0.25)" }}>
@@ -91,6 +139,7 @@ export default function AppShell() {
                 to={to}
                 key={to}
                 className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                onClick={closeMobileNav}
               >
                 <Icon size={18} className="nav-icon" />
                 <span>{label}</span>
@@ -104,6 +153,7 @@ export default function AppShell() {
                 <NavLink
                   to="/admin/laboratories"
                   className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                  onClick={closeMobileNav}
                 >
                   <Activity size={18} className="nav-icon" />
                   <span>Laboratories</span>
@@ -112,6 +162,7 @@ export default function AppShell() {
               <NavLink
                 to="/admin/users"
                 className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                onClick={closeMobileNav}
               >
                 <Users size={18} className="nav-icon" />
                 <span>Users</span>
@@ -119,6 +170,7 @@ export default function AppShell() {
               <NavLink
                 to="/admin/tests"
                 className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                onClick={closeMobileNav}
               >
                 <TestTube2 size={18} className="nav-icon" />
                 <span>Tests Catalog</span>
@@ -129,11 +181,21 @@ export default function AppShell() {
             <NavLink
               to="/settings"
               className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+              onClick={closeMobileNav}
             >
               <Settings size={18} className="nav-icon" />
               <span>Settings</span>
             </NavLink>
           )}
+
+          <NavLink
+            to="/support"
+            className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+            onClick={closeMobileNav}
+          >
+            <LifeBuoy size={18} className="nav-icon" />
+            <span>Support</span>
+          </NavLink>
         </nav>
 
         {/* Sidebar Footer */}

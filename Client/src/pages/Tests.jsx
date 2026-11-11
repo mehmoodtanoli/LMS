@@ -479,13 +479,13 @@ export function TestForm() {
                       </button>
                     </div>
 
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1.4fr 1fr 1.6fr",
-                        gap: "12px",
-                      }}
-                    >
+                      <div
+                        className="test-param-grid"
+                        style={{
+                          display: "grid",
+                          gap: "12px",
+                        }}
+                      >
                       <div className="form-group-clean">
                         <label style={{ fontSize: "0.8rem" }}>
                           Parameter Name <span className="required-star">*</span>

@@ -24,6 +24,7 @@ model Laboratory {
   testDefinitions TestDefinition[]
   testOrders      TestOrder[]
   users           User[]
+  supportTickets  SupportTicket[]
 
   @@map("laboratories")
 }
@@ -37,7 +38,8 @@ model User {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   isActive     Boolean     @default(true)
-  laboratory   Laboratory? @relation(fields: [laboratoryId], references: [id])
+  laboratory     Laboratory?     @relation(fields: [laboratoryId], references: [id])
+  supportTickets SupportTicket[]
 
   @@index([laboratoryId])
   @@map("users")
@@ -209,6 +211,42 @@ model AuditLog {
   @@index([entityId], map: "audit_logs_entityId_idx")
   @@index([actorUserId, createdAt], map: "audit_logs_userId_createdAt_idx")
   @@map("audit_logs")
+}
+
+model SupportTicket {
+  id             String                @id @default(uuid()) @db.Uuid
+  referenceCode  String                @unique
+  laboratoryId   String?               @db.Uuid
+  userId         String                @db.Uuid
+  category       SupportTicketCategory
+  status         SupportTicketStatus   @default(OPEN)
+  subject        String
+  description    String                @db.Text
+  contactInfo    String?
+  syncedToSheets Boolean               @default(false)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  laboratory     Laboratory?           @relation(fields: [laboratoryId], references: [id], onDelete: SetNull)
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([laboratoryId])
+  @@index([userId, createdAt])
+  @@map("support_tickets")
+}
+
+enum SupportTicketCategory {
+  TECHNICAL_ISSUE
+  COMPLAINT
+  FEATURE_REQUEST
+  GENERAL_INQUIRY
+  OTHER
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
 }
 
 enum UserRole {

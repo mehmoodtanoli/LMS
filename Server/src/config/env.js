@@ -48,6 +48,9 @@ const env = Object.freeze({
   isProduction: process.env.NODE_ENV === "production",
   isDevelopment: process.env.NODE_ENV === "development",
   isTest: process.env.NODE_ENV === "test",
+  supportWhatsAppNumber: process.env.SUPPORT_WHATSAPP_NUMBER || "",
+  googleSheetsWebhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL || "",
+  googleSheetsWebhookSecret: process.env.GOOGLE_SHEETS_WEBHOOK_SECRET || "",
 });
 
 export default env;

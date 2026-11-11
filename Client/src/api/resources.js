@@ -49,3 +49,8 @@ export const adminUsersApi = { ...adminResource("/admin/users") };
 delete adminUsersApi.remove;
 
 export const adminDashboardApi = { summary: () => client.get("/admin/dashboard") };
+
+export const supportApi = {
+  getConfig: () => client.get("/support/config"),
+  submitTicket: (data) => client.post("/support", data),
+};

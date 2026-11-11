@@ -27,6 +27,7 @@ import Tests, { TestForm, TestDetail } from "./pages/Tests";
 
 import Users, { UserForm, UserDetail } from "./pages/Users";
 import LaboratorySettings from "./pages/LaboratorySettings";
+import Support from "./pages/Support";
 
 export default function App() {
   return (
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/reports/:id" element={<ReportDetail />} />
 
           <Route path="/payments" element={<Payments />} />
+          <Route path="/support" element={<Support />} />
 
           {/* SUPERADMIN only routes */}
           <Route element={<RequireRole role="SUPERADMIN" />}>

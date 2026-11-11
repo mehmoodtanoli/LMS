@@ -16,6 +16,7 @@ import laboratoryRouter from "./routes/laboratory.route.js";
 import laboratorySettingsRouter from "./routes/laboratory-settings.route.js";
 import userRouter from "./routes/user.route.js";
 import dashboardRouter from "./routes/dashboard.route.js";
+import supportRouter from "./routes/support.route.js";
 import prisma from "./config/prisma.js";
 
 const app = express();
@@ -74,6 +75,7 @@ app.use("/api/admin/laboratories", laboratoryRouter);
 app.use("/api/laboratory-settings", laboratorySettingsRouter);
 app.use("/api/admin/users", userRouter);
 app.use("/api/admin/dashboard", dashboardRouter);
+app.use("/api/support", supportRouter);
 
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);

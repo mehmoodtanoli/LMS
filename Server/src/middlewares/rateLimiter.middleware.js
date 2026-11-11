@@ -1,16 +1,21 @@
 import ApiError from "../utils/ApiError.js";
+import prisma from "../config/prisma.js";
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_ATTEMPTS = 5;
 
+const SUPPORT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const SUPPORT_MAX_TICKETS = 5;
+
 // In-memory buckets for tracking failed attempts
 const ipAttempts = new Map();
 const emailAttempts = new Map();
+const supportAttempts = new Map();
 
-function cleanOldEntries(map) {
+function cleanOldEntries(map, windowMs = WINDOW_MS) {
   const now = Date.now();
   for (const [key, record] of map.entries()) {
-    if (now - record.firstAttemptAt > WINDOW_MS) {
+    if (now - record.firstAttemptAt > windowMs) {
       map.delete(key);
     }
   }
@@ -18,8 +23,9 @@ function cleanOldEntries(map) {
 
 // Periodically purge expired rate limit entries every 5 minutes
 setInterval(() => {
-  cleanOldEntries(ipAttempts);
-  cleanOldEntries(emailAttempts);
+  cleanOldEntries(ipAttempts, WINDOW_MS);
+  cleanOldEntries(emailAttempts, WINDOW_MS);
+  cleanOldEntries(supportAttempts, SUPPORT_WINDOW_MS);
 }, 5 * 60 * 1000).unref();
 
 export function loginRateLimiter(req, res, next) {
@@ -75,4 +81,68 @@ export function recordSuccessfulLogin(req, email) {
   if (email && typeof email === "string") {
     emailAttempts.delete(email.trim().toLowerCase());
   }
+}
+
+export async function supportRateLimiter(req, res, next) {
+  try {
+    const userId = req.user?.id || req.ip || "unknown_user";
+    const now = Date.now();
+
+    // 1. Fast in-memory check keyed by user id (or ip)
+    const userRecord = supportAttempts.get(userId);
+    if (
+      userRecord &&
+      userRecord.count >= SUPPORT_MAX_TICKETS &&
+      now - userRecord.firstAttemptAt < SUPPORT_WINDOW_MS
+    ) {
+      const remainingSecs = Math.ceil(
+        (SUPPORT_WINDOW_MS - (now - userRecord.firstAttemptAt)) / 1000
+      );
+      throw new ApiError(
+        429,
+        `Too many support requests. Please try again in ${remainingSecs} seconds.`
+      );
+    }
+
+    // 2. Database count check for authenticated user in the last 15 minutes
+    if (req.user?.id) {
+      const fifteenMinutesAgo = new Date(now - SUPPORT_WINDOW_MS);
+      const recentTicketCount = await prisma.supportTicket.count({
+        where: {
+          userId: req.user.id,
+          createdAt: {
+            gte: fifteenMinutesAgo,
+          },
+        },
+      });
+
+      if (recentTicketCount >= SUPPORT_MAX_TICKETS) {
+        supportAttempts.set(userId, {
+          count: recentTicketCount,
+          firstAttemptAt: now - Math.floor(SUPPORT_WINDOW_MS / 2),
+        });
+
+        throw new ApiError(
+          429,
+          "Too many support requests submitted recently. You may submit up to 5 tickets every 15 minutes."
+        );
+      }
+    }
+
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
+export function recordSupportSubmission(userId) {
+  if (!userId) return;
+  const now = Date.now();
+  const record = supportAttempts.get(userId) || { count: 0, firstAttemptAt: now };
+  if (now - record.firstAttemptAt > SUPPORT_WINDOW_MS) {
+    record.count = 0;
+    record.firstAttemptAt = now;
+  }
+  record.count += 1;
+  supportAttempts.set(userId, record);
 }
