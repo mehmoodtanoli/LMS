@@ -575,7 +575,7 @@ export function TestDetail() {
   useEffect(() => {
     testsApi
       .get(id)
-      .then((r) => setTest(r.data.test))
+      .then((r) => setTest(r.data.testDefinition))
       .catch((e) => setError(apiError(e)))
       .finally(() => setLoading(false));
   }, [id]);
