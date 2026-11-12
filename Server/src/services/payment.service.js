@@ -27,6 +27,9 @@ const PAYMENT_SELECT = {
     select: {
       id: true,
       name: true,
+      address: true,
+      phone: true,
+      email: true,
     },
   },
   order: {
@@ -325,6 +328,7 @@ async function getOrderBilling({ user, orderId }) {
   const items = (order.orderedTestItems || []).map((item) => {
     return {
       id: item.id,
+      price: item.price,
       testCode: item.testDefinition?.code,
       testName: item.testDefinition?.name,
     };

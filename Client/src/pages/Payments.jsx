@@ -4,13 +4,20 @@ import { apiError } from "../api/client";
 import { trackAnalyticsEvent } from "../analytics";
 import { useAuth } from "../auth/AuthContext";
 import { Empty, ErrorMessage, Loading, date, patientName } from "../components/Common";
-import { Plus, CreditCard, Search, X, Check, ArrowDownLeft, Clock, AlertCircle } from "lucide-react";
+import { Plus, CreditCard, Search, X, Check, ArrowDownLeft, Clock, AlertCircle, Printer } from "lucide-react";
 
 function getInitials(name) {
   if (!name) return "PT";
   const parts = name.trim().split(/\s+/);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return parts[0].slice(0, 2).toUpperCase();
+}
+
+function formatAmount(value) {
+  const amount = Number(value);
+  return value === null || value === undefined || !Number.isFinite(amount)
+    ? "—"
+    : `Rs ${amount.toFixed(2)}`;
 }
 
 export default function Payments() {
@@ -35,6 +42,7 @@ export default function Payments() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [printReceipt, setPrintReceipt] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -51,6 +59,31 @@ export default function Payments() {
   };
 
   useEffect(load, []);
+
+  useEffect(() => {
+    if (!printReceipt) return undefined;
+
+    document.body.classList.add("printing-thermal-receipt");
+    const printTimer = window.setTimeout(() => window.print(), 100);
+    const handleAfterPrint = () => setPrintReceipt(null);
+
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => {
+      window.clearTimeout(printTimer);
+      window.removeEventListener("afterprint", handleAfterPrint);
+      document.body.classList.remove("printing-thermal-receipt");
+    };
+  }, [printReceipt]);
+
+  const handlePrint = async (payment) => {
+    setError("");
+    try {
+      const response = await paymentsApi.billing(payment.orderId);
+      setPrintReceipt({ payment, billing: response.data.billing });
+    } catch (err) {
+      setError(apiError(err));
+    }
+  };
 
   const handleOrderChange = async (orderId) => {
     setForm((prev) => ({ ...prev, orderId, amount: "" }));
@@ -166,12 +199,20 @@ export default function Payments() {
         <button
           className="btn-primary-action"
           onClick={() => {
+            setForm({
+              orderId: "",
+              orderTotalAmount: "",
+              amount: "",
+              method: "CASH",
+              paidAt: new Date().toISOString().split("T")[0],
+              notes: "",
+            });
             setSelectedBilling(null);
             setIsModalOpen(true);
           }}
         >
           <Plus size={16} />
-          <span>{canRecordPayments ? "Record Payment" : "View Billing"}</span>
+          <span>Manage Billing</span>
         </button>
       </header>
 
@@ -248,6 +289,7 @@ export default function Payments() {
                 <th>Status</th>
                 <th>Paid Date</th>
                 <th>Notes</th>
+                <th>Receipt</th>
               </tr>
             </thead>
             <tbody>
@@ -297,6 +339,16 @@ export default function Payments() {
                     <td className="cell-created">{date(payment.paidAt)}</td>
 
                     <td className="cell-doctor">{payment.notes || "—"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn-secondary-action receipt-print-action"
+                        onClick={() => handlePrint(payment)}
+                      >
+                        <Printer size={14} />
+                        Print
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -307,7 +359,7 @@ export default function Payments() {
         <Empty>No payment records found.</Empty>
       )}
 
-      {/* Record Payment Modal */}
+      {/* Unified billing modal; finalization and payment remain separate API operations. */}
       {isModalOpen && (
         <div
           className="modal-backdrop"
@@ -321,7 +373,7 @@ export default function Payments() {
             style={{ maxWidth: "560px" }}
           >
             <div className="modal-header-clean">
-              <h2>Record Payment</h2>
+              <h2>Manage Billing</h2>
               <button
                 type="button"
                 className="modal-close-btn"
@@ -467,7 +519,7 @@ export default function Payments() {
                           onClick={finalizeBill}
                           style={{ marginTop: "8px" }}
                         >
-                          {submitting ? "Finalizing…" : "Finalize Bill"}
+                          {submitting ? "Finalizing…" : "Finalize Bill Without Payment"}
                         </button>
                       )}
                     </div>
@@ -477,12 +529,16 @@ export default function Payments() {
 
               <div className="form-group-clean">
                 <label>
-                  Payment Amount (Rs) <span className="required-star">*</span>
+                  Payment Amount (Rs) {canRecordPayments && <span className="required-star">*</span>}
                 </label>
                 <input
                   type="number"
-                  required
-                  disabled={!canRecordPayments}
+                  required={canRecordPayments}
+                  disabled={
+                    !canRecordPayments ||
+                    (selectedBilling && selectedBilling.remainingAmount !== null &&
+                      selectedBilling.remainingAmount <= 0)
+                  }
                   min="1"
                   max={selectedBilling?.remainingAmount !== null ? selectedBilling?.remainingAmount : undefined}
                   step="0.01"
@@ -501,7 +557,11 @@ export default function Payments() {
                 <label>Payment Method</label>
                 <select
                   value={form.method}
-                  disabled={!canRecordPayments}
+                  disabled={
+                    !canRecordPayments ||
+                    (selectedBilling && selectedBilling.remainingAmount !== null &&
+                      selectedBilling.remainingAmount <= 0)
+                  }
                   onChange={(e) => setForm({ ...form, method: e.target.value })}
                 >
                   <option value="CASH">Cash</option>
@@ -515,7 +575,11 @@ export default function Payments() {
                 <label>Payment Date</label>
                 <input
                   type="date"
-                  disabled={!canRecordPayments}
+                  disabled={
+                    !canRecordPayments ||
+                    (selectedBilling && selectedBilling.remainingAmount !== null &&
+                      selectedBilling.remainingAmount <= 0)
+                  }
                   value={form.paidAt}
                   onChange={(e) => setForm({ ...form, paidAt: e.target.value })}
                 />
@@ -526,7 +590,11 @@ export default function Payments() {
                 <input
                   type="text"
                   placeholder="e.g. Paid in cash at reception"
-                  disabled={!canRecordPayments}
+                  disabled={
+                    !canRecordPayments ||
+                    (selectedBilling && selectedBilling.remainingAmount !== null &&
+                      selectedBilling.remainingAmount <= 0)
+                  }
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 />
@@ -545,17 +613,83 @@ export default function Payments() {
                   className="btn-primary-action"
                   disabled={
                     submitting ||
+                    !canRecordPayments ||
+                    !selectedBilling ||
                     (selectedBilling &&
                       selectedBilling.remainingAmount !== null &&
                       selectedBilling.remainingAmount <= 0)
                   }
                 >
-                  {submitting ? "Saving…" : "Save Payment"}
+                  {submitting ? "Saving…" : "Record Payment"}
                 </button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {printReceipt && (
+        <section className="thermal-receipt" aria-label="Payment receipt">
+          <header className="thermal-receipt-header">
+            <h1>{printReceipt.payment.laboratory?.name || "Laboratory"}</h1>
+            {printReceipt.payment.laboratory?.address && <p>{printReceipt.payment.laboratory.address}</p>}
+            {(printReceipt.payment.laboratory?.phone || printReceipt.payment.laboratory?.email) && (
+              <p>
+                {[printReceipt.payment.laboratory.phone, printReceipt.payment.laboratory.email]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+            <h2>Payment Receipt</h2>
+          </header>
+
+          <div className="thermal-receipt-meta">
+            <div><span>Receipt Ref</span><strong>{printReceipt.payment.id.slice(0, 8).toUpperCase()}</strong></div>
+            <div><span>Date &amp; Time</span><strong>{new Date(printReceipt.payment.paidAt).toLocaleString()}</strong></div>
+            <div><span>Patient</span><strong>{patientName(printReceipt.payment.order?.patient)}</strong></div>
+            <div><span>Identifier</span><strong>{printReceipt.payment.order?.patient?.cnic || "—"}</strong></div>
+            <div><span>Order Ref</span><strong>ORD-{printReceipt.payment.orderId.replace(/-/g, "").slice(0, 8).toUpperCase()}</strong></div>
+          </div>
+
+          <div className="thermal-receipt-items">
+            <div className="thermal-receipt-items-heading">
+              <span>Ordered test</span><span>Price</span>
+            </div>
+            {(printReceipt.payment.order?.orderedTestItems || []).map((item) => (
+              <div className="thermal-receipt-line" key={item.id}>
+                <span>
+                  {item.testDefinition?.code ? `${item.testDefinition.code} - ` : ""}
+                  {item.testDefinition?.name || "Diagnostic test"}
+                </span>
+                <strong>
+                  {item.price === null || item.price === undefined || formatAmount(item.price) === "—"
+                    ? "Unavailable"
+                    : formatAmount(item.price)}
+                </strong>
+              </div>
+            ))}
+          </div>
+
+          <div className="thermal-receipt-totals">
+            <div><span>Finalized bill</span><strong>{formatAmount(printReceipt.billing.totalAmount)}</strong></div>
+            <div><span>This payment</span><strong>{formatAmount(printReceipt.payment.amount)}</strong></div>
+            <div><span>Total paid</span><strong>{formatAmount(printReceipt.billing.paidAmount)}</strong></div>
+            <div><span>Remaining balance</span><strong>{formatAmount(printReceipt.billing.remainingAmount)}</strong></div>
+            <div><span>Payment method</span><strong>{printReceipt.payment.method || "CASH"}</strong></div>
+          </div>
+
+          {printReceipt.payment.receivedBy && (
+            <div className="thermal-receipt-line">
+              <span>Received by</span><strong>{printReceipt.payment.receivedBy}</strong>
+            </div>
+          )}
+          {printReceipt.payment.notes && (
+            <div className="thermal-receipt-line">
+              <span>Reference</span><strong>{printReceipt.payment.notes}</strong>
+            </div>
+          )}
+          <footer className="thermal-receipt-footer">Thank you</footer>
+        </section>
       )}
     </div>
   );

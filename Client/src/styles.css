@@ -2144,6 +2144,109 @@ a {
     border-radius: 0 !important;
     width: 100% !important;
   }
+
+  @page {
+    size: A4 portrait;
+  }
+
+  body.printing-thermal-receipt {
+    background: #ffffff !important;
+  }
+
+  body.printing-thermal-receipt .app-shell {
+    visibility: hidden !important;
+  }
+
+  body.printing-thermal-receipt .thermal-receipt {
+    display: block !important;
+    visibility: visible !important;
+    position: fixed;
+    inset: 0 auto auto 0;
+  }
+
+  @page thermal-receipt {
+    size: 80mm auto;
+    margin: 4mm;
+  }
+
+  body.printing-thermal-receipt {
+    page: thermal-receipt;
+  }
+}
+
+.thermal-receipt {
+  display: none;
+  width: 72mm;
+  margin: 0 auto;
+  color: #000;
+  background: #fff;
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.thermal-receipt-header {
+  text-align: center;
+  border-bottom: 1px dashed #000;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.thermal-receipt-header h1,
+.thermal-receipt-header h2,
+.thermal-receipt-header p {
+  margin: 2px 0;
+}
+
+.thermal-receipt-header h1 {
+  font-size: 17px;
+}
+
+.thermal-receipt-header h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.thermal-receipt-meta,
+.thermal-receipt-items,
+.thermal-receipt-totals {
+  display: grid;
+  gap: 4px;
+  border-bottom: 1px dashed #000;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.thermal-receipt-items-heading {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #000;
+  padding-bottom: 3px;
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.thermal-receipt-meta div,
+.thermal-receipt-totals div,
+.thermal-receipt-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.thermal-receipt-meta strong,
+.thermal-receipt-totals strong,
+.thermal-receipt-line strong {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.thermal-receipt-footer {
+  border-top: 1px dashed #000;
+  margin-top: 8px;
+  padding-top: 8px;
+  text-align: center;
+  font-weight: 700;
 }
 
 /* ==========================================================================
