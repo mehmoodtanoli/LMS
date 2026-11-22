@@ -56,3 +56,17 @@ export const supportApi = {
   getConfig: () => client.get("/support/config"),
   submitTicket: (data) => client.post("/support", data),
 };
+export const exportsApi = {
+  datasets: () => client.get("/exports/datasets"),
+  history: (params) => client.get("/exports/history", { params }),
+  downloadDataset: (dataset, params) =>
+    client.get(`/exports/${dataset}`, {
+      params: { format: "csv", ...params },
+      responseType: "blob",
+    }),
+  downloadComplete: (params) =>
+    client.get("/exports/complete", {
+      params,
+      responseType: "blob",
+    }),
+};

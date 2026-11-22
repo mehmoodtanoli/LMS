@@ -3,6 +3,7 @@ import { Building2, Image, Mail, MapPin, Phone, Save, Settings } from "lucide-re
 import { laboratorySettingsApi } from "../api/resources";
 import { apiError } from "../api/client";
 import { ErrorMessage, Loading } from "../components/Common";
+import DataManagement from "./DataManagement";
 
 const initialForm = {
   name: "",
@@ -13,7 +14,8 @@ const initialForm = {
   tagline: "",
 };
 
-export default function LaboratorySettings() {
+function LaboratoryProfileSettings() {
+
   const [form, setForm] = useState(initialForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -139,6 +141,41 @@ export default function LaboratorySettings() {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+export default function LaboratorySettings() {
+  const [tab, setTab] = useState("profile");
+
+  return (
+    <div>
+      <div className="settings-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "profile"}
+          className={`settings-tab ${tab === "profile" ? "active" : ""}`}
+          onClick={() => setTab("profile")}
+        >
+          Laboratory Profile
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "data"}
+          className={`settings-tab ${tab === "data" ? "active" : ""}`}
+          onClick={() => setTab("data")}
+        >
+          Data Management
+        </button>
+      </div>
+
+      {tab === "profile" ? (
+        <LaboratoryProfileSettings />
+      ) : (
+        <DataManagement />
+      )}
     </div>
   );
 }
