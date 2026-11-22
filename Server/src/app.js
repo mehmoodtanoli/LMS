@@ -18,7 +18,7 @@ import userRouter from "./routes/user.route.js";
 import dashboardRouter from "./routes/dashboard.route.js";
 import supportRouter from "./routes/support.route.js";
 import prisma from "./config/prisma.js";
-
+import exportRouter from "./routes/export.route.js";
 const app = express();
 
 // Trust proxy for proper IP resolution behind reverse proxy / load balancer (Fixes #8)
@@ -76,7 +76,7 @@ app.use("/api/laboratory-settings", laboratorySettingsRouter);
 app.use("/api/admin/users", userRouter);
 app.use("/api/admin/dashboard", dashboardRouter);
 app.use("/api/support", supportRouter);
-
+app.use("/api/exports", exportRouter);
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
 
