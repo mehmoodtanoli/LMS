@@ -18,6 +18,7 @@ const REPORT_SELECT = {
   title: true,
   snapshot: true,
   version: true,
+  reportNumber: true,
   previousReportId: true,
   createdAt: true,
   updatedAt: true,
@@ -362,6 +363,26 @@ function hasCompleteResult(item) {
   );
 }
 
+/**
+ * Sequential report number per laboratory.
+ * Amendments keep the order's existing number; a new order takes the next
+ * number from the lab counter. The increment locks the lab row until the
+ * transaction ends, so concurrent reports never get the same number.
+ */
+async function resolveReportNumber(tx, laboratoryId, latestReport) {
+  if (latestReport?.reportNumber) {
+    return latestReport.reportNumber;
+  }
+
+  const laboratory = await tx.laboratory.update({
+    where: { id: laboratoryId },
+    data: { reportCounter: { increment: 1 } },
+    select: { reportCounter: true },
+  });
+
+  return laboratory.reportCounter;
+}
+
 async function createReport({ user, data }) {
   const orderId = normalizeString(data.orderId);
 
@@ -428,6 +449,7 @@ async function createReport({ user, data }) {
           id: true,
           version: true,
           status: true,
+          reportNumber: true,
         },
       });
 
@@ -462,6 +484,7 @@ async function createReport({ user, data }) {
           laboratoryId: order.laboratoryId,
           orderId,
           version: nextVersion,
+          reportNumber: await resolveReportNumber(tx, order.laboratoryId, latestReport),
           previousReportId: latestReport ? latestReport.id : null,
           snapshot,
           status: targetStatus,
@@ -574,4 +597,5 @@ export {
   hasCompleteResult,
   buildReportSnapshot,
   buildListWhere,
+  resolveReportNumber,
 };
