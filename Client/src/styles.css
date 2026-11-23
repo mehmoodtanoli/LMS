@@ -2112,41 +2112,123 @@ a {
   opacity: 0.9;
 }
 
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
+
 @media print {
+  /*
+   * Lab report prints onto the lab's own pre-printed letterhead.
+   * Top/bottom margins leave blank space for that header and footer.
+   * ponytail: fixed for all labs; move to a per-lab setting if letterheads differ.
+   */
   @page {
     size: A4 portrait;
-    margin: 10mm 12mm;
+    margin: 45mm 15mm 30mm 15mm;
   }
   body {
     background: #ffffff !important;
     color: #000000 !important;
   }
-  .sidebar, .page-header-simple, .orders-toolbar, .table-card, .no-print, .modal-header-clean {
+  .sidebar, .page-header-simple, .orders-toolbar, .table-card, .no-print, .modal-header-clean,
+  .mobile-nav-trigger, .sidebar-backdrop {
     display: none !important;
   }
-  .modal-backdrop {
-    position: static !important;
-    background: transparent !important;
-    padding: 0 !important;
-    margin: 0 !important;
+
+  /* Report preview open: print only the report, nothing from the app shell. */
+  body:has(#printable-report) * {
+    visibility: hidden;
   }
-  .modal-card-clean {
+  body:has(#printable-report) #printable-report,
+  body:has(#printable-report) #printable-report * {
+    visibility: visible;
+  }
+  body:has(#printable-report) .modal-backdrop,
+  body:has(#printable-report) .modal-card-clean {
+    position: static !important;
+    inset: auto !important;
+    background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
     margin: 0 !important;
-    max-width: 100% !important;
+    max-width: none !important;
     width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
-  .printable-lab-report {
+  #printable-report {
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    width: 100% !important;
     padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
     box-shadow: none !important;
     border-radius: 0 !important;
-    width: 100% !important;
+    overflow: visible !important;
+    font-size: 10.5pt;
+  }
+  #printable-report,
+  #printable-report * {
+    color: #000 !important;
   }
 
-  @page {
-    size: A4 portrait;
+  /* Lab letterhead supplies branding, address and signatures. */
+  #printable-report .xpert-watermark,
+  #printable-report .xpert-report-header,
+  #printable-report .xpert-footer-section {
+    display: none !important;
+  }
+
+  #printable-report .xpert-patient-info-box {
+    border: 1px solid #000 !important;
+    border-radius: 0 !important;
+    margin: 0 0 6mm !important;
+    break-inside: avoid;
+  }
+  #printable-report .xpert-banner-wrapper {
+    margin: 0 0 4mm !important;
+  }
+  #printable-report .xpert-test-report-banner {
+    display: none !important;
+  }
+  #printable-report .xpert-results-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  #printable-report .xpert-results-table thead {
+    display: table-header-group;
+  }
+  #printable-report .xpert-results-table th {
+    border-top: 1px solid #000 !important;
+    border-bottom: 1px solid #000 !important;
+    background: none !important;
+    color: #000 !important;
+  }
+  #printable-report .xpert-results-table tr {
+    break-inside: avoid;
+  }
+  #printable-report .xpert-results-table td {
+    border-bottom: 1px solid #ddd !important;
+    padding: 1.6mm 2mm !important;
+  }
+  #printable-report .report-panel-head {
+    font-weight: 700;
+    break-after: avoid;
+  }
+  #printable-report .xpert-status-badge {
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+    color: #000 !important;
+  }
+  #printable-report .xpert-status-high,
+  #printable-report .xpert-status-low {
+    font-weight: 700;
   }
 
   body.printing-thermal-receipt {

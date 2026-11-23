@@ -208,6 +208,9 @@ export default function Reports() {
         return {
           id: rep.id,
           reportId: rep.id,
+          reportNo: rep.reportNumber
+            ? `RPT-${String(rep.reportNumber).padStart(6, "0")}`
+            : "—",
           orderId: rep.orderId,
           orderCode: order?.id
             ? `ORD-${order.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`
@@ -228,7 +231,7 @@ export default function Reports() {
     if (!search.trim()) return list;
     const q = search.toLowerCase();
     return list.filter((r) => {
-      const code = (r.orderCode || "").toLowerCase();
+      const code = `${r.reportNo} ${r.orderCode || ""}`.toLowerCase();
       const pName = `${r.patient?.name || ""} ${r.patient?.fullName || ""}`.toLowerCase();
       const cnic = (r.patient?.cnic || "").toLowerCase();
       const tests = r.testItems
@@ -299,7 +302,7 @@ export default function Reports() {
           <table className="clean-table">
             <thead>
               <tr>
-                <th style={{ width: "120px" }}>Order #</th>
+                <th style={{ width: "120px" }}>Report #</th>
                 <th>Patient</th>
                 <th>Tests</th>
                 <th>Amount</th>
@@ -318,7 +321,7 @@ export default function Reports() {
 
                 return (
                   <tr key={report.id || idx}>
-                    <td className="cell-order-num">{report.orderCode}</td>
+                    <td className="cell-order-num">{report.reportNo}</td>
                     <td className="cell-patient">
                       <div className="patient-avatar-box">
                         <span className="patient-avatar-circle">{initials}</span>
@@ -447,8 +450,8 @@ export default function Reports() {
 
                   <div className="xpert-header-meta">
                     <div className="xpert-report-id-badge">
-                      <span className="xpert-id-label">REPORT ID</span>
-                      <span className="xpert-id-number">{previewReport.reportId}</span>
+                      <span className="xpert-id-label">REPORT NO.</span>
+                      <span className="xpert-id-number">{previewReport.reportNo}</span>
                     </div>
                       <span className="xpert-instant-tag">ORDER {previewReport.orderCode}</span>
                   </div>
@@ -498,6 +501,10 @@ export default function Reports() {
                   </div>
 
                   <div className="xpert-patient-col">
+                    <div className="xpert-info-row print-only">
+                      <span className="xpert-info-lbl">REPORT NO.:</span>
+                      <span className="xpert-info-val">{previewReport.reportNo}</span>
+                    </div>
                     <div className="xpert-info-row">
                       <span className="xpert-info-lbl">PATIENT CNIC / ID:</span>
                       <span className="xpert-info-val">
