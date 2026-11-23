@@ -15,6 +15,7 @@ model Laboratory {
   email           String?
   logoUrl         String?
   tagline         String?
+  reportCounter   Int              @default(0)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   isActive        Boolean          @default(true)
@@ -167,6 +168,7 @@ model Report {
   title            String?
   snapshot         Json?
   version          Int          @default(1)
+  reportNumber     Int
   previousReportId String?      @db.Uuid
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -176,6 +178,7 @@ model Report {
   amendedReports   Report[]     @relation("ReportHistory")
 
   @@unique([orderId, version])
+  @@unique([laboratoryId, reportNumber, version])
   @@index([laboratoryId, orderId])
   @@map("reports")
 }

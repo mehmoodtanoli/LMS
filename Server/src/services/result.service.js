@@ -7,7 +7,7 @@ import {
   normalizeOptionalString,
 } from "../utils/validators.js";
 import { recordAuditLog } from "../utils/audit.js";
-import { hasCompleteResult, buildReportSnapshot } from "./report.service.js";
+import { hasCompleteResult, buildReportSnapshot, resolveReportNumber } from "./report.service.js";
 
 const VALID_RESULT_STATUSES = [
   "PENDING",
@@ -512,7 +512,7 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
   const latestReport = await tx.report.findFirst({
     where: { orderId },
     orderBy: { version: "desc" },
-    select: { id: true, version: true, status: true },
+    select: { id: true, version: true, status: true, reportNumber: true },
   });
 
   if (latestReport?.status === "FINAL") {
@@ -540,6 +540,7 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
       laboratoryId: order.laboratoryId,
       orderId,
       version: nextVersion,
+      reportNumber: await resolveReportNumber(tx, order.laboratoryId, latestReport),
       previousReportId: latestReport ? latestReport.id : null,
       snapshot,
       status: "FINAL",
