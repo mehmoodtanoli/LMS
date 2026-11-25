@@ -2078,6 +2078,24 @@ a {
   margin: 2px 0 0;
 }
 
+/* Report sign-off: blank lines for wet signature and stamp */
+.report-signoff {
+  display: flex;
+  justify-content: space-between;
+  gap: 32px;
+  margin: 56px 24px 8px;
+}
+.report-signoff-block {
+  text-align: center;
+  width: 220px;
+}
+.report-signoff-note {
+  margin: 12px 24px 0;
+  font-size: 0.7rem;
+  color: #64748b;
+  text-align: center;
+}
+
 /* Bottom Bar */
 .xpert-bottom-bar {
   background: #0c3c6d;
@@ -2229,6 +2247,22 @@ a {
   #printable-report .xpert-status-high,
   #printable-report .xpert-status-low {
     font-weight: 700;
+  }
+  /* Space above each line for the wet signature; keep block with last rows. */
+  #printable-report .report-signoff {
+    margin: 22mm 0 0 !important;
+    break-inside: avoid;
+    break-before: avoid;
+  }
+  #printable-report .report-signoff-block {
+    width: 65mm;
+  }
+  #printable-report .xpert-sig-line {
+    border-top: 1px solid #000 !important;
+  }
+  #printable-report .report-signoff-note {
+    margin: 5mm 0 0 !important;
+    font-size: 8pt;
   }
 
   body.printing-thermal-receipt {

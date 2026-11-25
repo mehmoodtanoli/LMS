@@ -634,6 +634,18 @@ export default function Reports() {
                 </table>
               </div>
 
+              {/* Sign-off: blank lines for wet signature and stamp */}
+              <div className="report-signoff">
+                <div className="report-signoff-block">
+                  <div className="xpert-sig-line" />
+                  <p className="xpert-sig-name">Medical Technologist</p>
+                  <p className="xpert-sig-title">Name: ______________________</p>
+                </div>
+              </div>
+              <p className="report-signoff-note">
+                Results relate only to the sample received. Not valid without signature and stamp.
+              </p>
+
               {/* Report Footer */}
               <div className="xpert-footer-section">
                 <div className="xpert-footer-middle">
@@ -643,20 +655,8 @@ export default function Reports() {
                   <div className="xpert-footer-disclaimer-box">
                     <p className="xpert-disclaimer-title">ELECTRONICALLY VERIFIED REPORT</p>
                     <p className="xpert-disclaimer-text">
-                      This diagnostic investigation report has been validated electronically by certified pathology information systems. No physical signature is required.
+                      This report is generated electronically. A printed copy is valid only with the signature and stamp above.
                     </p>
-                  </div>
-                  <div className="xpert-signatures-group">
-                    <div className="xpert-signature-block">
-                      <div className="xpert-sig-line" />
-                      <p className="xpert-sig-name">Lab Technologist</p>
-                      <p className="xpert-sig-title">B.Sc. MLT, Reg. # 4921</p>
-                    </div>
-                    <div className="xpert-signature-block">
-                      <div className="xpert-sig-line" />
-                      <p className="xpert-sig-name">Authorized Reviewer</p>
-                      <p className="xpert-sig-title">Laboratory Report Verification</p>
-                    </div>
                   </div>
                 </div>
 
