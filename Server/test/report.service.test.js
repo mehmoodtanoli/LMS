@@ -228,3 +228,14 @@ test("report number: new order takes next lab counter value, amendment keeps its
   assert.equal(await resolveReportNumber(tx, "lab-a", { reportNumber: 7, version: 1 }), 7);
   assert.equal(calls.length, 1);
 });
+
+test("delete report: only administrators may delete", async () => {
+  const { deleteReport } = await import("../src/services/report.service.js");
+  await assert.rejects(
+    deleteReport({
+      user: { id: "u1", role: "LAB_TECH", laboratoryId: "lab-1" },
+      reportId: "00000000-0000-4000-8000-000000000000",
+    }),
+    { statusCode: 403 }
+  );
+});
