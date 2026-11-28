@@ -17,4 +17,5 @@ test("session cookie is httpOnly, Lax, scoped to /api and read back", () => {
   const req = { headers: { cookie: `other=1; ${SESSION_COOKIE}=${encodeURIComponent(token)}; x=2` } };
   assert.equal(readSessionCookie(req), token);
   assert.equal(readSessionCookie({ headers: {} }), null);
+  assert.equal(readSessionCookie({ headers: { cookie: `${SESSION_COOKIE}=%E0%A4%A` } }), null);
 });

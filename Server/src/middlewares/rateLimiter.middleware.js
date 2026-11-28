@@ -31,32 +31,46 @@ setInterval(() => {
   cleanOldEntries(supportAttempts, SUPPORT_WINDOW_MS);
 }, 5 * 60 * 1000).unref();
 
-// Failed logins per email are also kept in the database, because Vercel runs
-// many short-lived instances and in-memory counts are not shared between them.
-// ponytail: only failures count, a success does not reset them; add a reset if users complain.
-async function recentFailedLoginsInDb(email) {
-  return prisma.auditLog.count({
-    where: {
-      action: "LOGIN_FAILED",
-      entityId: email,
-      createdAt: { gte: new Date(Date.now() - WINDOW_MS) },
-    },
-  });
+// Failed logins are also kept in the database, because Vercel runs many
+// short-lived instances and in-memory counts are not shared between them.
+// The tight limit is per email+IP, so an attacker cannot lock a real user out
+// from another IP. A looser per-email limit still caps distributed guessing.
+// ponytail: an attacker spread over many IPs can still hit the per-email cap; add CAPTCHA if that happens.
+const MAX_EMAIL_ATTEMPTS_ALL_IPS = 50;
+
+async function recentFailedLoginsInDb(email, ip) {
+  const where = {
+    action: "LOGIN_FAILED",
+    entityId: email,
+    createdAt: { gte: new Date(Date.now() - WINDOW_MS) },
+  };
+  const [fromIp, total] = await Promise.all([
+    prisma.auditLog.count({ where: { ...where, details: { path: ["ip"], equals: ip } } }),
+    prisma.auditLog.count({ where }),
+  ]);
+  return { fromIp, total };
 }
 
 export async function loginRateLimiter(req, res, next) {
   try {
     const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-    if (email && (await recentFailedLoginsInDb(email)) >= MAX_ATTEMPTS) {
-      throw new ApiError(
-        429,
-        "Too many failed login attempts for this account. Please try again in 15 minutes."
-      );
+    if (email) {
+      const { fromIp, total } = await recentFailedLoginsInDb(email, clientIp(req));
+      if (fromIp >= MAX_ATTEMPTS || total >= MAX_EMAIL_ATTEMPTS_ALL_IPS) {
+        throw new ApiError(
+          429,
+          "Too many failed login attempts for this account. Please try again in 15 minutes."
+        );
+      }
     }
     memoryLoginRateLimiter(req, res, next);
   } catch (error) {
     next(error);
   }
+}
+
+function clientIp(req) {
+  return req.ip || req.connection?.remoteAddress || "unknown_ip";
 }
 
 function memoryLoginRateLimiter(req, res, next) {
@@ -72,7 +86,7 @@ function memoryLoginRateLimiter(req, res, next) {
   }
 
   if (email) {
-    const emailRecord = emailAttempts.get(email);
+    const emailRecord = emailAttempts.get(`${email}|${ip}`);
     if (emailRecord && emailRecord.count >= MAX_ATTEMPTS && now - emailRecord.firstAttemptAt < WINDOW_MS) {
       const remainingSecs = Math.ceil((WINDOW_MS - (now - emailRecord.firstAttemptAt)) / 1000);
       throw new ApiError(429, `Too many login attempts for this account. Please try again in ${remainingSecs} seconds.`);
@@ -108,7 +122,7 @@ export async function recordFailedLogin(req, email) {
   ipAttempts.set(ip, ipRecord);
 
   if (email && typeof email === "string") {
-    const normEmail = email.trim().toLowerCase();
+    const normEmail = `${email.trim().toLowerCase()}|${ip}`;
     const emailRecord = emailAttempts.get(normEmail) || { count: 0, firstAttemptAt: now };
     if (now - emailRecord.firstAttemptAt > WINDOW_MS) {
       emailRecord.count = 0;
@@ -123,7 +137,7 @@ export function recordSuccessfulLogin(req, email) {
   const ip = req.ip || req.connection?.remoteAddress || "unknown_ip";
   ipAttempts.delete(ip);
   if (email && typeof email === "string") {
-    emailAttempts.delete(email.trim().toLowerCase());
+    emailAttempts.delete(`${email.trim().toLowerCase()}|${ip}`);
   }
 }
 

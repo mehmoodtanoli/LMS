@@ -498,6 +498,17 @@ async function createReport({ user, data }) {
         select: REPORT_SELECT,
       });
 
+      // An issued report with every result final completes the order.
+      if (
+        (targetStatus === "FINAL" || targetStatus === "AMENDED") &&
+        order.orderedTestItems.every((item) => hasCompleteResult(item))
+      ) {
+        await tx.testOrder.update({
+          where: { id: orderId },
+          data: { status: "COMPLETED" },
+        });
+      }
+
       await recordAuditLog({
         db: tx,
         laboratoryId: order.laboratoryId,

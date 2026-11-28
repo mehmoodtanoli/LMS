@@ -599,6 +599,10 @@ async function finalizeOrderBill({ user, orderId, totalAmount, adjustmentReason 
       throw new ApiError(403, "You are not authorized to finalize this bill.");
     }
 
+    if (order.status === "CANCELLED") {
+      throw new ApiError(409, "Cannot finalize the bill of a cancelled order.");
+    }
+
     if (order.totalAmount !== null && order.totalAmount !== undefined) {
       const establishedTotalCents = moneyToCents(
         order.totalAmount,
