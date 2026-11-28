@@ -25,7 +25,6 @@ export const resultsApi = {
 };
 export const reportsApi = { ...resource("/reports") };
 delete reportsApi.update;
-delete reportsApi.remove;
 
 export const paymentsApi = {
   ...resource("/payments"),

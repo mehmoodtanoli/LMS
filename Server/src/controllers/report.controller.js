@@ -1,5 +1,5 @@
 import ApiResponse from "../utils/ApiResponse.js";
-import { createReport, listReports, getReportById } from "../services/report.service.js";
+import { createReport, listReports, getReportById, deleteReport } from "../services/report.service.js";
 
 const create = async (req, res) => {
   const report = await createReport({ user: req.user, data: req.body });
@@ -31,4 +31,12 @@ const getById = async (req, res) => {
   return res.status(200).json(response);
 };
 
-export { create, list, getById };
+const remove = async (req, res) => {
+  const result = await deleteReport({ user: req.user, reportId: req.params.id });
+
+  const response = new ApiResponse(200, "Report deleted successfully.", result);
+
+  return res.status(200).json(response);
+};
+
+export { create, list, getById, remove };

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ordersApi, reportsApi } from "../api/resources";
 import { apiError } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { Loading, ErrorMessage, Empty, patientName } from "../components/Common";
 import {
   Printer,
@@ -177,6 +178,8 @@ export default function Reports() {
 
   // Print Preview Modal State
   const [previewReport, setPreviewReport] = useState(null);
+  const { user } = useAuth();
+  const canDelete = user?.role === "SUPERADMIN" || user?.role === "LAB_ADMIN";
 
   const loadData = () => {
     setLoading(true);
@@ -194,6 +197,22 @@ export default function Reports() {
 
   useEffect(loadData, []);
 
+  const removeReport = async (report) => {
+    if (
+      !window.confirm(
+        `Delete report ${report.reportNo}? All versions of this report will be removed. This cannot be undone.`
+      )
+    )
+      return;
+
+    try {
+      await reportsApi.remove(report.reportId);
+      loadData();
+    } catch (e) {
+      setError(apiError(e));
+    }
+  };
+
   // Reports are sourced from the report records so status and identity remain authoritative.
   const displayReports = useMemo(() => {
     const list = reports.map((rep) => {
@@ -208,6 +227,9 @@ export default function Reports() {
         return {
           id: rep.id,
           reportId: rep.id,
+          reportNo: rep.reportNumber
+            ? `RPT-${String(rep.reportNumber).padStart(6, "0")}`
+            : "—",
           orderId: rep.orderId,
           orderCode: order?.id
             ? `ORD-${order.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`
@@ -228,7 +250,7 @@ export default function Reports() {
     if (!search.trim()) return list;
     const q = search.toLowerCase();
     return list.filter((r) => {
-      const code = (r.orderCode || "").toLowerCase();
+      const code = `${r.reportNo} ${r.orderCode || ""}`.toLowerCase();
       const pName = `${r.patient?.name || ""} ${r.patient?.fullName || ""}`.toLowerCase();
       const cnic = (r.patient?.cnic || "").toLowerCase();
       const tests = r.testItems
@@ -299,7 +321,7 @@ export default function Reports() {
           <table className="clean-table">
             <thead>
               <tr>
-                <th style={{ width: "120px" }}>Order #</th>
+                <th style={{ width: "120px" }}>Report #</th>
                 <th>Patient</th>
                 <th>Tests</th>
                 <th>Amount</th>
@@ -318,7 +340,7 @@ export default function Reports() {
 
                 return (
                   <tr key={report.id || idx}>
-                    <td className="cell-order-num">{report.orderCode}</td>
+                    <td className="cell-order-num">{report.reportNo}</td>
                     <td className="cell-patient">
                       <div className="patient-avatar-box">
                         <span className="patient-avatar-circle">{initials}</span>
@@ -353,14 +375,25 @@ export default function Reports() {
                     </td>
                     <td className="cell-created">{finalizedStr}</td>
                     <td style={{ textAlign: "right" }}>
-                      <button
-                        type="button"
-                        className="btn-print-action"
-                        onClick={() => handlePrint(report)}
-                      >
-                        <Printer size={15} />
-                        <span>View & Print</span>
-                      </button>
+                      <div style={{ display: "inline-flex", gap: "12px", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          className="btn-print-action"
+                          onClick={() => handlePrint(report)}
+                        >
+                          <Printer size={15} />
+                          <span>View & Print</span>
+                        </button>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            className="action-text-btn-danger"
+                            onClick={() => removeReport(report)}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -447,8 +480,8 @@ export default function Reports() {
 
                   <div className="xpert-header-meta">
                     <div className="xpert-report-id-badge">
-                      <span className="xpert-id-label">REPORT ID</span>
-                      <span className="xpert-id-number">{previewReport.reportId}</span>
+                      <span className="xpert-id-label">REPORT NO.</span>
+                      <span className="xpert-id-number">{previewReport.reportNo}</span>
                     </div>
                       <span className="xpert-instant-tag">ORDER {previewReport.orderCode}</span>
                   </div>
@@ -498,6 +531,10 @@ export default function Reports() {
                   </div>
 
                   <div className="xpert-patient-col">
+                    <div className="xpert-info-row print-only">
+                      <span className="xpert-info-lbl">REPORT NO.:</span>
+                      <span className="xpert-info-val">{previewReport.reportNo}</span>
+                    </div>
                     <div className="xpert-info-row">
                       <span className="xpert-info-lbl">PATIENT CNIC / ID:</span>
                       <span className="xpert-info-val">
@@ -624,7 +661,27 @@ export default function Reports() {
                       );
                     })}
                   </tbody>
+                  {/* Print only: keeps rows clear of the fixed signature at the page bottom. */}
+                  <tfoot className="print-only">
+                    <tr>
+                      <td colSpan={5} className="report-signoff-spacer" />
+                    </tr>
+                  </tfoot>
                 </table>
+              </div>
+
+              {/* Sign-off: blank line for wet signature and stamp. Fixed to page bottom in print. */}
+              <div className="report-signoff-wrap">
+              <div className="report-signoff">
+                <div className="report-signoff-block">
+                  <div className="xpert-sig-line" />
+                  <p className="xpert-sig-name">Medical Technologist</p>
+                  <p className="xpert-sig-title">Name: ______________________</p>
+                </div>
+              </div>
+              <p className="report-signoff-note">
+                Results relate only to the sample received. Not valid without signature and stamp.
+              </p>
               </div>
 
               {/* Report Footer */}
@@ -636,20 +693,8 @@ export default function Reports() {
                   <div className="xpert-footer-disclaimer-box">
                     <p className="xpert-disclaimer-title">ELECTRONICALLY VERIFIED REPORT</p>
                     <p className="xpert-disclaimer-text">
-                      This diagnostic investigation report has been validated electronically by certified pathology information systems. No physical signature is required.
+                      This report is generated electronically. A printed copy is valid only with the signature and stamp above.
                     </p>
-                  </div>
-                  <div className="xpert-signatures-group">
-                    <div className="xpert-signature-block">
-                      <div className="xpert-sig-line" />
-                      <p className="xpert-sig-name">Lab Technologist</p>
-                      <p className="xpert-sig-title">B.Sc. MLT, Reg. # 4921</p>
-                    </div>
-                    <div className="xpert-signature-block">
-                      <div className="xpert-sig-line" />
-                      <p className="xpert-sig-name">Authorized Reviewer</p>
-                      <p className="xpert-sig-title">Laboratory Report Verification</p>
-                    </div>
                   </div>
                 </div>
 

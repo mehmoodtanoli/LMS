@@ -18,6 +18,7 @@ const REPORT_SELECT = {
   title: true,
   snapshot: true,
   version: true,
+  reportNumber: true,
   previousReportId: true,
   createdAt: true,
   updatedAt: true,
@@ -362,6 +363,26 @@ function hasCompleteResult(item) {
   );
 }
 
+/**
+ * Sequential report number per laboratory.
+ * Amendments keep the order's existing number; a new order takes the next
+ * number from the lab counter. The increment locks the lab row until the
+ * transaction ends, so concurrent reports never get the same number.
+ */
+async function resolveReportNumber(tx, laboratoryId, latestReport) {
+  if (latestReport?.reportNumber) {
+    return latestReport.reportNumber;
+  }
+
+  const laboratory = await tx.laboratory.update({
+    where: { id: laboratoryId },
+    data: { reportCounter: { increment: 1 } },
+    select: { reportCounter: true },
+  });
+
+  return laboratory.reportCounter;
+}
+
 async function createReport({ user, data }) {
   const orderId = normalizeString(data.orderId);
 
@@ -428,6 +449,7 @@ async function createReport({ user, data }) {
           id: true,
           version: true,
           status: true,
+          reportNumber: true,
         },
       });
 
@@ -462,6 +484,7 @@ async function createReport({ user, data }) {
           laboratoryId: order.laboratoryId,
           orderId,
           version: nextVersion,
+          reportNumber: await resolveReportNumber(tx, order.laboratoryId, latestReport),
           previousReportId: latestReport ? latestReport.id : null,
           snapshot,
           status: targetStatus,
@@ -567,11 +590,50 @@ async function getReportById({ user, reportId }) {
   return report;
 }
 
+// Deletes the whole report (every version of it for that order).
+// The deleted rows are copied into the audit log so the record is not lost.
+async function deleteReport({ user, reportId }) {
+  if (user.role !== "SUPERADMIN" && user.role !== "LAB_ADMIN") {
+    throw new ApiError(403, "Only administrators can delete reports.");
+  }
+
+  const report = await getReportById({ user, reportId });
+
+  return prisma.$transaction(async (tx) => {
+    const versions = await tx.report.findMany({
+      where: { orderId: report.orderId, laboratoryId: report.laboratoryId },
+      select: REPORT_SELECT,
+    });
+
+    await tx.report.deleteMany({
+      where: { orderId: report.orderId, laboratoryId: report.laboratoryId },
+    });
+
+    await recordAuditLog({
+      db: tx,
+      laboratoryId: report.laboratoryId,
+      userId: user.id,
+      action: "REPORT_DELETED",
+      entity: "Report",
+      entityId: report.id,
+      details: {
+        orderId: report.orderId,
+        reportNumber: report.reportNumber,
+        deletedVersions: versions,
+      },
+    });
+
+    return { id: report.id, deletedVersions: versions.length };
+  });
+}
+
 export {
   createReport,
   listReports,
   getReportById,
+  deleteReport,
   hasCompleteResult,
   buildReportSnapshot,
   buildListWhere,
+  resolveReportNumber,
 };

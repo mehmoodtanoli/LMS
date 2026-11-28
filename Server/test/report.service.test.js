@@ -5,6 +5,7 @@ import {
   hasCompleteResult,
   buildReportSnapshot,
   buildListWhere,
+  resolveReportNumber,
 } from "../src/services/report.service.js";
 import prisma from "../src/config/prisma.js";
 
@@ -204,4 +205,37 @@ test("createReport returns existing FINAL report on retry (idempotent)", async (
     prisma.testOrder.findFirst = originalFindFirst;
     prisma.$transaction = originalTransaction;
   }
+});
+
+test("report number: new order takes next lab counter value, amendment keeps its number", async () => {
+  const calls = [];
+  const tx = {
+    laboratory: {
+      update: async (args) => {
+        calls.push(args);
+        return { reportCounter: 42 };
+      },
+    },
+  };
+
+  assert.equal(await resolveReportNumber(tx, "lab-a", null), 42);
+  assert.deepEqual(calls[0], {
+    where: { id: "lab-a" },
+    data: { reportCounter: { increment: 1 } },
+    select: { reportCounter: true },
+  });
+
+  assert.equal(await resolveReportNumber(tx, "lab-a", { reportNumber: 7, version: 1 }), 7);
+  assert.equal(calls.length, 1);
+});
+
+test("delete report: only administrators may delete", async () => {
+  const { deleteReport } = await import("../src/services/report.service.js");
+  await assert.rejects(
+    deleteReport({
+      user: { id: "u1", role: "LAB_TECH", laboratoryId: "lab-1" },
+      reportId: "00000000-0000-4000-8000-000000000000",
+    }),
+    { statusCode: 403 }
+  );
 });
