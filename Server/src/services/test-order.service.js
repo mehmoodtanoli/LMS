@@ -390,8 +390,10 @@ async function createTestOrder({ user, data }) {
   const derivedLaboratoryId = patient.laboratoryId;
 
   const notes = normalizeOptionalString(data.notes);
-  const status =
-    data.status === undefined ? undefined : normalizeOrderStatus(data.status);
+  // New orders always start PENDING; status changes go through updateTestOrder rules.
+  if (data.status !== undefined && normalizeOrderStatus(data.status) !== "PENDING") {
+    throw new ApiError(400, "New orders must start as PENDING.", { field: "status" });
+  }
 
   try {
     const order = await prisma.$transaction(async (tx) => {
@@ -407,7 +409,6 @@ async function createTestOrder({ user, data }) {
         patientId,
         orderNumber: laboratory.orderCounter,
 
-        ...(status ? { status } : {}),
         ...(notes !== undefined ? { notes } : {}),
 
         orderedTestItems: {
@@ -549,14 +550,9 @@ async function updateTestOrder({ user, orderId, data }) {
     }
 
     if (updateData.status === "CANCELLED") {
+      // Admins may cancel paid orders; the audit log records the payments
+      // so the refund is handled outside the system.
       assertOrderAdmin(user, "cancel");
-
-      if (order.payments.length > 0) {
-        throw new ApiError(
-          409,
-          "This order has payments and cannot be cancelled. Refund the payments first."
-        );
-      }
     }
   }
 
@@ -584,7 +580,12 @@ async function updateTestOrder({ user, orderId, data }) {
       action: "TEST_ORDER_UPDATED",
       entity: "TestOrder",
       entityId: orderId,
-      details: updateData,
+      details: {
+        ...updateData,
+        ...(updateData.status === "CANCELLED" && order.payments.length > 0
+          ? { cancelledWithPaidPayments: order.payments.map((p) => p.id) }
+          : {}),
+      },
     });
 
     return updated;

@@ -153,3 +153,47 @@ test("numeric parameters reject text, text parameters accept it", async () => {
   assert.doesNotThrow(() => assertNumericValues({ hb: "12.5", chol: "190", hcv: "Positive" }, params));
   assert.doesNotThrow(() => assertNumericValues({ hb: "" }, params));
 });
+
+test("numeric parameters accept qualifiers, separators and text named in the range", async () => {
+  const { assertNumericValues } = await import("../src/services/result.service.js");
+  const params = [
+    { id: "tsh", name: "TSH", referenceRange: "0.4-4.0" },
+    { id: "plt", name: "Platelets", referenceRange: "150,000-450,000" },
+    { id: "hcv", name: "Anti HCV", referenceRange: "Non-reactive (<1.0)" },
+  ];
+
+  assert.doesNotThrow(() =>
+    assertNumericValues({ tsh: "<0.01", plt: "1,200", hcv: "Non-reactive" }, params)
+  );
+  assert.doesNotThrow(() => assertNumericValues({ tsh: ">= 5", plt: ">1000" }, params));
+  assert.throws(() => assertNumericValues({ tsh: "high-ish" }, params), { statusCode: 400 });
+  assert.throws(() => assertNumericValues({ hcv: "Reactive-ish" }, params), { statusCode: 400 });
+  assert.throws(() => assertNumericValues({ tsh: "-" }, params), { statusCode: 400 });
+});
+
+test("result update checks numeric values against the parameter range", async () => {
+  const originalFindFirst = prisma.result.findFirst;
+  let select;
+  prisma.result.findFirst = async (args) => {
+    select = args.select;
+    return {
+      ...existingResult,
+      orderedTestItem: {
+        order: { laboratoryId: user.laboratoryId },
+        testDefinition: { parameters: [{ id: "hb", name: "Hb", referenceRange: "13-17" }] },
+      },
+    };
+  };
+  try {
+    await assert.rejects(
+      updateResult({ user, resultId, data: { value: { hb: "high-ish" } } }),
+      { statusCode: 400 }
+    );
+    assert.equal(
+      select.orderedTestItem.select.testDefinition.select.parameters.select.referenceRange,
+      true
+    );
+  } finally {
+    prisma.result.findFirst = originalFindFirst;
+  }
+});

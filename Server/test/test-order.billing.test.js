@@ -128,12 +128,39 @@ test("order status: cancelled and completed orders cannot change", async () => {
   );
 });
 
-test("order status: paid orders and lab techs cannot cancel", async () => {
-  await withOrder({ id: orderId, laboratoryId: user.laboratoryId, status: "PENDING", payments: [{ id: "p" }] }, () =>
-    assert.rejects(updateTestOrder({ user, orderId, data: { status: "CANCELLED" } }), /payments/)
-  );
+test("order status: admins may cancel paid orders, lab techs cannot cancel", async () => {
+  const originalAudit = prisma.auditLog.create;
+  let auditDetails;
+  prisma.auditLog.create = async ({ data }) => { auditDetails = data.details; return {}; };
+  try {
+    await withOrder({ id: orderId, laboratoryId: user.laboratoryId, status: "PENDING", payments: [{ id: "p" }] }, async () => {
+      const updated = await updateTestOrder({ user, orderId, data: { status: "CANCELLED" } });
+      assert.equal(updated.status, "CANCELLED");
+    });
+    assert.deepEqual(auditDetails.cancelledWithPaidPayments, ["p"]);
+  } finally {
+    prisma.auditLog.create = originalAudit;
+  }
   const tech = { ...user, role: "LAB_TECH" };
   await withOrder({ id: orderId, laboratoryId: user.laboratoryId, status: "PENDING", payments: [] }, () =>
     assert.rejects(updateTestOrder({ user: tech, orderId, data: { status: "CANCELLED" } }), { statusCode: 403 })
   );
+});
+
+test("new orders cannot start in a non-PENDING status", async () => {
+  const original = prisma.patient.findFirst;
+  prisma.patient.findFirst = async () => ({ id: patientId, laboratoryId: user.laboratoryId });
+  const originalDef = prisma.testDefinition.findFirst;
+  prisma.testDefinition.findFirst = async () => ({ id: testId, laboratoryId: user.laboratoryId, parameters: [] });
+  try {
+    for (const status of ["CANCELLED", "COMPLETED"]) {
+      await assert.rejects(
+        createTestOrder({ user: { ...user, role: "LAB_TECH" }, data: { patientId, testDefinitionIds: [testId], status } }),
+        { statusCode: 400 }
+      );
+    }
+  } finally {
+    prisma.patient.findFirst = original;
+    prisma.testDefinition.findFirst = originalDef;
+  }
 });

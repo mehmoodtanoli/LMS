@@ -239,3 +239,51 @@ test("delete report: only administrators may delete", async () => {
     { statusCode: 403 }
   );
 });
+
+test("issuing a FINAL report completes the order", async () => {
+  const orderId = "00000000-0000-0000-0000-000000000021";
+  const labId = "00000000-0000-0000-0000-000000000001";
+  const originalFindFirst = prisma.testOrder.findFirst;
+  const originalTransaction = prisma.$transaction;
+  prisma.testOrder.findFirst = async () => ({
+    id: orderId,
+    laboratoryId: labId,
+    status: "IN_PROGRESS",
+    notes: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    laboratory: { id: labId, name: "Lab" },
+    patient: { id: "p1", name: "A", fullName: "A", cnic: null, phone: null, age: 1, ageUnit: "YEARS", gender: "MALE", address: null, laboratoryId: labId },
+    orderedTestItems: [
+      {
+        id: "i1",
+        price: 0,
+        notes: null,
+        testDefinition: { id: "t1", code: "T", name: "Test", price: 0, laboratoryId: null, parameters: [] },
+        result: { id: "r1", status: "FINALIZED", value: "ok", unit: null, referenceRange: null, interpretation: null, notes: null, finalizedAt: new Date(), finalizedById: null, createdAt: new Date(), updatedAt: new Date() },
+      },
+    ],
+  });
+  let orderStatus = null;
+  prisma.$transaction = async (callback) =>
+    callback({
+      laboratory: { update: async () => ({ reportCounter: 1 }) },
+      report: {
+        findFirst: async () => null,
+        create: async () => ({ id: "rep-1", status: "FINAL" }),
+      },
+      testOrder: { update: async ({ data }) => { orderStatus = data.status; } },
+      auditLog: { create: async () => ({}) },
+    });
+
+  try {
+    await createReport({
+      user: { id: "u1", role: "LAB_ADMIN", laboratoryId: labId },
+      data: { orderId, status: "FINAL" },
+    });
+    assert.equal(orderStatus, "COMPLETED");
+  } finally {
+    prisma.testOrder.findFirst = originalFindFirst;
+    prisma.$transaction = originalTransaction;
+  }
+});

@@ -30,5 +30,10 @@ export function readSessionCookie(req) {
   const match = (req.headers.cookie || "").match(
     new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`)
   );
-  return match ? decodeURIComponent(match[1]) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null; // malformed cookie: treat as logged out (401), not a 500
+  }
 }

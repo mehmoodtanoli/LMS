@@ -224,7 +224,11 @@ function assertNumericValues(value, parameters = []) {
     if (!/\d/.test(parameter.referenceRange || "")) continue;
     const raw = value[parameter.id] ?? value[parameter.name];
     if (raw === null || raw === undefined || String(raw).trim() === "") continue;
-    if (!Number.isFinite(Number(String(raw).trim()))) {
+    // Allow qualifiers (<0.01, >1000, <=5) and thousands separators (1,200).
+    const numeric = String(raw).trim().replace(/^(<=|>=|[<>≤≥])\s*/, "").replace(/,(?=\d{3}\b)/g, "");
+    // Text answers are fine when the range itself names them ("Non-reactive (<1.0)").
+    const namedInRange = /[a-z]/i.test(String(raw)) && parameter.referenceRange.toLowerCase().includes(String(raw).trim().toLowerCase());
+    if (!Number.isFinite(Number(numeric)) && !namedInRange) {
       throw new ApiError(400, `${parameter.name} must be a number.`, {
         field: parameter.name,
       });
@@ -689,6 +693,7 @@ async function updateResult({ user, resultId, data }) {
                 select: {
                   id: true,
                   name: true,
+                  referenceRange: true,
                 },
               },
             },

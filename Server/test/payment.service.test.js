@@ -694,3 +694,15 @@ test("billing reports the catalog total for the order", async () => {
     mock.restore();
   }
 });
+
+test("bill cannot be finalized on a cancelled order", async () => {
+  const mock = installTransaction({ ...makeOrder(), status: "CANCELLED" });
+  try {
+    await assert.rejects(
+      finalizeOrderBill({ user: admin, orderId, totalAmount: 5000 }),
+      { statusCode: 409 }
+    );
+  } finally {
+    mock.restore();
+  }
+});
