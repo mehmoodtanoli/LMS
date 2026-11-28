@@ -79,7 +79,12 @@ function buildTestData(data) {
     testData.description = description ?? null;
   }
 
-  // Preserve catalog price for compatibility; it is not used for billing.
+  if (data.specimenType !== undefined) {
+    const specimenType = normalizeOptionalString(data.specimenType);
+    testData.specimenType = specimenType ?? null;
+  }
+
+  // Catalog price: the expected bill total; a different total needs a reason.
   if (data.price !== undefined) {
     if (data.price === null || data.price === "") {
       testData.price = 0;

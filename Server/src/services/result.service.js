@@ -70,6 +70,7 @@ const RESULT_SELECT = {
         select: {
           id: true,
           code: true,
+          specimenType: true,
           name: true,
           price: true,
           laboratoryId: true,
@@ -303,6 +304,7 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
         select: {
           id: true,
           code: true,
+          specimenType: true,
           name: true,
           price: true,
           laboratoryId: true,
@@ -541,6 +543,7 @@ async function ensureFinalReportForOrder(tx, user, orderId, { amended = false } 
             select: {
               id: true,
               code: true,
+              specimenType: true,
               name: true,
               price: true,
               laboratoryId: true,

@@ -5,6 +5,7 @@ import {
   getCurrentUser,
   changeUserPassword,
 } from "../services/auth.service.js";
+import { setSessionCookie, clearSessionCookie } from "../utils/sessionCookie.js";
 import {
   recordFailedLogin,
   recordSuccessfulLogin,
@@ -33,10 +34,11 @@ const login = async (req, res) => {
   try {
     const result = await loginUser({ email, password });
     recordSuccessfulLogin(req, email);
+    setSessionCookie(res, result.token);
 
+    // The token is only sent as the httpOnly cookie, never in the body page scripts can read.
     const response = new ApiResponse(200, "Login successful.", {
       user: result.user,
-      token: result.token,
     });
 
     return res.status(200).json(response);
@@ -67,9 +69,17 @@ const changePassword = async (req, res) => {
     newPassword,
   });
 
+  // The password change ended older sessions; keep this one with the fresh token.
+  setSessionCookie(res, result.token);
+
   return res
     .status(200)
-    .json(new ApiResponse(200, "Password updated successfully.", result));
+    .json(new ApiResponse(200, "Password updated successfully.", { message: result.message }));
 };
 
-export { register, login, getMe, changePassword };
+const logout = async (req, res) => {
+  clearSessionCookie(res);
+  return res.status(200).json(new ApiResponse(200, "Logged out.", null));
+};
+
+export { register, login, getMe, changePassword, logout };

@@ -32,6 +32,7 @@ export default function Payments() {
   const [form, setForm] = useState({
     orderId: "",
     orderTotalAmount: "",
+    adjustmentReason: "",
     amount: "",
     method: "CASH",
     paidAt: new Date().toISOString().split("T")[0],
@@ -97,6 +98,13 @@ export default function Payments() {
       const res = await paymentsApi.billing(orderId);
       const billing = res.data.billing;
       setSelectedBilling(billing);
+      if (billing && billing.totalAmount === null && billing.catalogTotal > 0) {
+        setForm((prev) => ({
+          ...prev,
+          orderTotalAmount: String(billing.catalogTotal),
+          adjustmentReason: "",
+        }));
+      }
       if (billing && billing.remainingAmount !== null && billing.remainingAmount > 0) {
         setForm((prev) => ({ ...prev, amount: String(billing.remainingAmount) }));
       }
@@ -107,6 +115,13 @@ export default function Payments() {
     }
   };
 
+  // A bill that differs from the test prices needs a reason (discount, extra charge).
+  const billDiffers =
+    selectedBilling?.totalAmount === null &&
+    selectedBilling?.catalogTotal > 0 &&
+    form.orderTotalAmount !== "" &&
+    Number(form.orderTotalAmount) !== selectedBilling.catalogTotal;
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
@@ -116,7 +131,10 @@ export default function Payments() {
       await paymentsApi.create({
         orderId: form.orderId,
         ...(selectedBilling?.totalAmount === null
-          ? { orderTotalAmount: Number(form.orderTotalAmount) }
+          ? {
+              orderTotalAmount: Number(form.orderTotalAmount),
+              ...(billDiffers ? { adjustmentReason: form.adjustmentReason.trim() } : {}),
+            }
           : {}),
         amount: Number(form.amount),
         method: form.method,
@@ -129,6 +147,7 @@ export default function Payments() {
       setForm({
         orderId: "",
         orderTotalAmount: "",
+        adjustmentReason: "",
         amount: "",
         method: "CASH",
         paidAt: new Date().toISOString().split("T")[0],
@@ -151,6 +170,7 @@ export default function Payments() {
     try {
       const response = await ordersApi.finalizeBill(form.orderId, {
         totalAmount: Number(form.orderTotalAmount),
+        ...(billDiffers ? { adjustmentReason: form.adjustmentReason.trim() } : {}),
       });
       setSelectedBilling(response.data.billing);
       setForm((prev) => ({ ...prev, orderTotalAmount: "" }));
@@ -203,6 +223,7 @@ export default function Payments() {
             setForm({
               orderId: "",
               orderTotalAmount: "",
+              adjustmentReason: "",
               amount: "",
               method: "CASH",
               paidAt: new Date().toISOString().split("T")[0],
@@ -510,11 +531,34 @@ export default function Payments() {
                         onChange={(e) => setForm({ ...form, orderTotalAmount: e.target.value })}
                         placeholder="Enter the final bill amount"
                       />
+                      {selectedBilling.catalogTotal > 0 && (
+                        <span className="field-hint">
+                          Test prices total Rs {selectedBilling.catalogTotal}
+                        </span>
+                      )}
+                      {billDiffers && (
+                        <>
+                          <label htmlFor="bill-adjustment-reason" style={{ marginTop: "8px" }}>
+                            Reason for different amount <span className="required-star">*</span>
+                          </label>
+                          <input
+                            id="bill-adjustment-reason"
+                            required
+                            value={form.adjustmentReason}
+                            onChange={(e) => setForm({ ...form, adjustmentReason: e.target.value })}
+                            placeholder="e.g. 10% staff discount, home collection charge"
+                          />
+                        </>
+                      )}
                       {canFinalizeBills && (
                         <button
                           type="button"
                           className="btn-primary-action"
-                          disabled={submitting || !form.orderTotalAmount}
+                          disabled={
+                            submitting ||
+                            !form.orderTotalAmount ||
+                            (billDiffers && !form.adjustmentReason.trim())
+                          }
                           onClick={finalizeBill}
                           style={{ marginTop: "8px" }}
                         >

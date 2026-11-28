@@ -59,6 +59,7 @@ const TEST_ORDER_SELECT = {
         select: {
           id: true,
           code: true,
+          specimenType: true,
           name: true,
           price: true,
           laboratoryId: true,

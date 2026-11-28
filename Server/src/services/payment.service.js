@@ -324,6 +324,32 @@ async function findAccessibleTestOrder({ user, orderId, db = prisma }) {
   return order;
 }
 
+// Sum of the current catalog prices of the order's tests, in cents.
+function catalogTotalCents(order) {
+  return (order.orderedTestItems || []).reduce(
+    (sum, item) => sum + moneyToCents(item.testDefinition?.price ?? 0, "test price", true),
+    0
+  );
+}
+
+// A bill that differs from the test prices needs a reason (discount, home
+// collection charge, ...). Returns the reason to record, or null when it matches.
+// ponytail: when no test has a price set, any total is accepted without a reason.
+function assertBillMatchesCatalog(order, totalCents, adjustmentReason) {
+  const expectedCents = catalogTotalCents(order);
+  if (expectedCents === 0 || expectedCents === totalCents) return null;
+
+  const reason = normalizeOptionalString(adjustmentReason);
+  if (!reason) {
+    throw new ApiError(
+      400,
+      `The bill total (Rs. ${(totalCents / 100).toFixed(2)}) differs from the test prices (Rs. ${(expectedCents / 100).toFixed(2)}). Enter a reason for the difference.`,
+      { field: "adjustmentReason", expectedTotal: expectedCents / 100 }
+    );
+  }
+  return reason;
+}
+
 async function getOrderBilling({ user, orderId }) {
   const order = await findAccessibleTestOrder({ user, orderId });
 
@@ -366,6 +392,7 @@ async function getOrderBilling({ user, orderId }) {
     remainingAmount:
       remainingAmountCents === null ? null : remainingAmountCents / 100,
     billFinalizedAt: order.billFinalizedAt,
+    catalogTotal: catalogTotalCents(order) / 100,
     status,
     items,
     payments: order.payments,
@@ -495,6 +522,11 @@ async function createPayment({ user, data, idempotencyKey }) {
         );
       }
 
+      const adjustmentReason =
+        establishedTotal === null
+          ? assertBillMatchesCatalog(accessibleOrder, totalOrderAmountCents, data.adjustmentReason)
+          : null;
+
       if (establishedTotal === null) {
         await tx.testOrder.update({
           where: { id: orderId },
@@ -530,6 +562,13 @@ async function createPayment({ user, data, idempotencyKey }) {
           orderId,
           amount: paymentData.amount,
           status: paymentData.status,
+          ...(adjustmentReason
+            ? {
+                billTotal: totalOrderAmountCents / 100,
+                catalogTotal: catalogTotalCents(accessibleOrder) / 100,
+                adjustmentReason,
+              }
+            : {}),
         },
         db: tx,
       });
@@ -547,7 +586,7 @@ async function createPayment({ user, data, idempotencyKey }) {
   }
 }
 
-async function finalizeOrderBill({ user, orderId, totalAmount }) {
+async function finalizeOrderBill({ user, orderId, totalAmount, adjustmentReason }) {
   const laboratoryId = assertBillFinalizationScope(user);
   assertUuid(orderId, "orderId");
   const requestedTotalCents = moneyToCents(totalAmount, "totalAmount");
@@ -601,6 +640,8 @@ async function finalizeOrderBill({ user, orderId, totalAmount }) {
       );
     }
 
+    const reason = assertBillMatchesCatalog(order, requestedTotalCents, adjustmentReason);
+
     const finalizedAt = new Date();
     const updatedOrder = await tx.testOrder.update({
       where: { id: orderId },
@@ -619,6 +660,8 @@ async function finalizeOrderBill({ user, orderId, totalAmount }) {
       details: {
         totalAmount: requestedTotalCents / 100,
         alreadyPaid: alreadyPaidCents / 100,
+        catalogTotal: catalogTotalCents(order) / 100,
+        ...(reason ? { adjustmentReason: reason } : {}),
       },
       db: tx,
     });

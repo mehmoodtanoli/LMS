@@ -55,6 +55,16 @@ function getDoctorName(report) {
 }
 
 function getSpecimenType(report) {
+  // Use the specimen set on each test; fall back to a guess from the test name.
+  const configured = [
+    ...new Set(
+      (report?.testItems || [])
+        .map((i) => i.testDefinition?.specimenType)
+        .filter(Boolean)
+    ),
+  ];
+  if (configured.length) return configured.join(", ");
+
   const testsStr = (report?.testItems || [])
     .map((i) => `${i.testDefinition?.code || ""} ${i.testDefinition?.name || ""}`)
     .join(" ")

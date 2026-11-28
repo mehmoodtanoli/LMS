@@ -4,6 +4,7 @@ export const authApi = {
   login: (data) => client.post("/auth/login", data),
   me: () => client.get("/auth/me"),
   changePassword: (data) => client.post("/auth/change-password", data),
+  logout: () => client.post("/auth/logout"),
 };
 
 // Fetches every page; the server returns at most 100 rows per page.

@@ -70,6 +70,7 @@ const REPORT_SELECT = {
             select: {
               id: true,
               code: true,
+              specimenType: true,
               name: true,
               price: true,
               laboratoryId: true,
@@ -268,6 +269,7 @@ async function findAccessibleOrder({ user, orderId }) {
             select: {
               id: true,
               code: true,
+              specimenType: true,
               name: true,
               price: true,
               laboratoryId: true,

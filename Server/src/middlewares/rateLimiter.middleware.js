@@ -3,6 +3,9 @@ import prisma from "../config/prisma.js";
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_ATTEMPTS = 5;
+// Per-IP limit is higher: behind the client's /api rewrite many users can share
+// one proxy IP, and the per-email database limit is the main protection.
+const MAX_IP_ATTEMPTS = 50;
 
 const SUPPORT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const SUPPORT_MAX_TICKETS = 5;
@@ -63,7 +66,7 @@ function memoryLoginRateLimiter(req, res, next) {
   const now = Date.now();
 
   const ipRecord = ipAttempts.get(ip);
-  if (ipRecord && ipRecord.count >= MAX_ATTEMPTS && now - ipRecord.firstAttemptAt < WINDOW_MS) {
+  if (ipRecord && ipRecord.count >= MAX_IP_ATTEMPTS && now - ipRecord.firstAttemptAt < WINDOW_MS) {
     const remainingSecs = Math.ceil((WINDOW_MS - (now - ipRecord.firstAttemptAt)) / 1000);
     throw new ApiError(429, `Too many login attempts from this IP. Please try again in ${remainingSecs} seconds.`);
   }
