@@ -40,6 +40,14 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
     throw new ApiError(403, "This account has been deactivated.");
   }
 
+  // A password change ends every session started before it.
+  if (
+    user.passwordChangedAt &&
+    decoded.iat < Math.floor(user.passwordChangedAt.getTime() / 1000)
+  ) {
+    throw new ApiError(401, "Your password was changed. Please log in again.");
+  }
+
   // Reject requests when the laboratory is inactive (SUPERADMIN is exempt) (Fixes A9)
   if (
     user.role !== "SUPERADMIN" &&

@@ -59,7 +59,7 @@ export default function Patients() {
   const load = () => {
     setLoading(true);
     patientsApi
-      .list({ page: 1, limit: 100 })
+      .listAll()
       .then((r) => setPatients(r.data.patients || []))
       .catch((e) => setError(apiError(e)))
       .finally(() => setLoading(false));
@@ -204,7 +204,7 @@ export function PatientForm() {
   useEffect(() => {
     if (user?.role === "SUPERADMIN") {
       laboratoriesApi
-        .list({ page: 1, limit: 100 })
+        .listAll()
         .then((r) => {
           const labs = r.data.laboratories || [];
           setLaboratories(labs);
@@ -515,10 +515,10 @@ export function PatientDetail() {
   useEffect(() => {
     Promise.all([
       patientsApi.get(id),
-      ordersApi.list({ page: 1, limit: 100 }),
-      resultsApi.list({ page: 1, limit: 100 }),
-      reportsApi.list({ page: 1, limit: 100 }),
-      paymentsApi.list({ page: 1, limit: 100 }),
+      ordersApi.listAll(),
+      resultsApi.listAll(),
+      reportsApi.listAll(),
+      paymentsApi.listAll(),
       testsApi.list({ page: 1, limit: 1 }),
     ])
       .then(([p, o, r, rep, pay]) => {

@@ -21,6 +21,8 @@ import {
 import {
   ChevronDecorativeBar,
 } from "../components/XpertLogo";
+import { orderCode } from "../utils/orderCode";
+import { computeFlag } from "../utils/flags";
 
 function getInitials(name) {
   if (!name) return "PT";
@@ -69,50 +71,13 @@ function getSpecimenType(report) {
 }
 
 function getReportTestTitle(report) {
-  const testsStr = (report?.testItems || [])
-    .map((i) => `${i.testDefinition?.code || ""} ${i.testDefinition?.name || ""}`)
-    .join(" ")
-    .toUpperCase();
-  if (testsStr.includes("PT") || testsStr.includes("PROTHROMBIN") || testsStr.includes("INR"))
-    return "PROTHROMBIN TIME (PT) / INR";
-  if (testsStr.includes("APTT"))
-    return "ACTIVATED PARTIAL THROMBOPLASTIN TIME (APTT)";
-  if (testsStr.includes("CBC"))
-    return "COMPLETE BLOOD COUNT (CBC)";
-  if (testsStr.includes("LFT"))
-    return "LIVER FUNCTION TESTS (LFT)";
-  if (testsStr.includes("RFT"))
-    return "RENAL FUNCTION TESTS (RFT)";
-  if (report?.testItems?.length === 1) {
-    const t = report.testItems[0].testDefinition;
-    return (t?.name || t?.code || "CLINICAL PATHOLOGY").toUpperCase();
-  }
-  return "CLINICAL PATHOLOGY REPORT";
+  // Every test on the order, in order; a single test keeps its own name.
+  const names = (report?.testItems || [])
+    .map((i) => i.testDefinition?.name || i.testDefinition?.code)
+    .filter(Boolean);
+  return names.length ? names.join(" / ").toUpperCase() : "CLINICAL PATHOLOGY REPORT";
 }
 
-function computeFlag(value, refRange) {
-  if (!value || !refRange) return null;
-  const num = parseFloat(value);
-  if (isNaN(num)) return null;
-
-  const rangeMatch = refRange.match(/([\d.]+)\s*-\s*([\d.]+)/);
-  if (rangeMatch) {
-    const low = parseFloat(rangeMatch[1]);
-    const high = parseFloat(rangeMatch[2]);
-    if (!isNaN(low) && num < low) return "Low";
-    if (!isNaN(high) && num > high) return "High";
-    return "Normal";
-  }
-
-  const lessMatch = refRange.match(/<\s*([\d.]+)/);
-  if (lessMatch) {
-    const limit = parseFloat(lessMatch[1]);
-    if (num > limit) return "High";
-    return "Normal";
-  }
-
-  return null;
-}
 
 function isPresentResultValue(value) {
   if (value === null || value === undefined) return false;
@@ -136,7 +101,13 @@ function getReportRows(report) {
       const paramDefs = item.testDefinition?.parameters || [];
       rows.push({ isHeader: true, title: testName || testCode });
 
-      Object.keys(resVal).forEach((key) => {
+      // Configured parameter order first, then any extra keys as stored.
+      const position = (key) => {
+        const i = paramDefs.findIndex((p) => p.id === key || p.name === key);
+        const def = paramDefs[i];
+        return i === -1 ? Number.MAX_SAFE_INTEGER : def.order ?? i;
+      };
+      Object.keys(resVal).sort((a, b) => position(a) - position(b)).forEach((key) => {
         const val = resVal[key];
         const def = paramDefs.find((p) => p.id === key || p.name === key) || {};
         rows.push({
@@ -184,8 +155,8 @@ export default function Reports() {
   const loadData = () => {
     setLoading(true);
     Promise.all([
-      reportsApi.list({ page: 1, limit: 100 }),
-      ordersApi.list({ page: 1, limit: 100 }),
+      reportsApi.listAll(),
+      ordersApi.listAll(),
     ])
       .then(([r, o]) => {
         setReports(r.data.reports || []);
@@ -215,7 +186,8 @@ export default function Reports() {
 
   // Reports are sourced from the report records so status and identity remain authoritative.
   const displayReports = useMemo(() => {
-    const list = reports.map((rep) => {
+    // Older versions replaced by an amendment are history, not separate reports.
+    const list = reports.filter((rep) => rep.status !== "SUPERSEDED").map((rep) => {
         const order = rep.order || orders.find((o) => o.id === rep.orderId);
         const pat = rep.snapshot?.patient || order?.patient;
         const testItems = rep.snapshot?.orderedTestItems || order?.orderedTestItems || [];
@@ -231,9 +203,7 @@ export default function Reports() {
             ? `RPT-${String(rep.reportNumber).padStart(6, "0")}`
             : "—",
           orderId: rep.orderId,
-          orderCode: order?.id
-            ? `ORD-${order.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`
-            : "—",
+          orderCode: orderCode(rep.order || order),
           laboratory: rep.laboratory || order?.laboratory || null,
           patient: pat,
           testItems,

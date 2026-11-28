@@ -22,8 +22,8 @@ function sanitizeUser(user) {
 }
 
 function validatePasswordStrength(password, fieldName = "password") {
-  if (!password || typeof password !== "string" || password.length < 6) {
-    throw new ApiError(400, `${fieldName} must be at least 6 characters long.`, {
+  if (!password || typeof password !== "string" || password.length < 8) {
+    throw new ApiError(400, `${fieldName} must be at least 8 characters long.`, {
       field: fieldName,
     });
   }
@@ -231,9 +231,11 @@ async function changeUserPassword({ userId, currentPassword, newPassword }) {
 
   const passwordHash = await hashPassword(newPassword);
 
+  // Second precision matches JWT iat, so the new token issued below stays valid.
+  const passwordChangedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
   await prisma.user.update({
     where: { id: userId },
-    data: { passwordHash },
+    data: { passwordHash, passwordChangedAt },
   });
 
   await recordAuditLog({
@@ -244,7 +246,9 @@ async function changeUserPassword({ userId, currentPassword, newPassword }) {
     entityId: user.id,
   });
 
-  return { message: "Password updated successfully." };
+  const token = signToken({ userId: user.id, email: user.email, role: user.role });
+
+  return { message: "Password updated successfully.", token };
 }
 
 export {

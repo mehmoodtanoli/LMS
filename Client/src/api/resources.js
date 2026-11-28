@@ -6,8 +6,23 @@ export const authApi = {
   changePassword: (data) => client.post("/auth/change-password", data),
 };
 
+// Fetches every page; the server returns at most 100 rows per page.
+// ponytail: loads the whole list into the page; move to server-side paging and search
+// when a lab has many thousands of rows.
+const listAll = (path) => async (params = {}) => {
+  const first = await client.get(path, { params: { ...params, page: 1, limit: 100 } });
+  const key = Object.keys(first.data || {}).find((k) => Array.isArray(first.data[k]));
+  const totalPages = first.meta?.totalPages || 1;
+  for (let page = 2; key && page <= totalPages; page += 1) {
+    const next = await client.get(path, { params: { ...params, page, limit: 100 } });
+    first.data[key].push(...next.data[key]);
+  }
+  return first;
+};
+
 const resource = (path) => ({
   list: (params) => client.get(path, { params }),
+  listAll: listAll(path),
   get: (id) => client.get(`${path}/${id}`),
   create: (data) => client.post(path, data),
   update: (id, data) => client.patch(`${path}/${id}`, data),

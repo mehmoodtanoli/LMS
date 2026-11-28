@@ -49,6 +49,7 @@ async function getDashboardStatistics({ user, now = new Date() }) {
     : {};
   const orderSelect = {
     id: true,
+    orderNumber: true,
     status: true,
     createdAt: true,
     patient: { select: { name: true, fullName: true } },

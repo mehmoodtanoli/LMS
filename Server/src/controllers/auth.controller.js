@@ -42,7 +42,7 @@ const login = async (req, res) => {
     return res.status(200).json(response);
   } catch (error) {
     if (error?.statusCode === 401) {
-      recordFailedLogin(req, email);
+      await recordFailedLogin(req, email);
     }
     throw error;
   }

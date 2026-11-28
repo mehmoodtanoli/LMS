@@ -47,7 +47,7 @@ export default function Tests() {
   const load = () => {
     setLoading(true);
     testsApi
-      .list({ page: 1, limit: 100 })
+      .listAll()
       .then((r) => setTests(r.data.tests || []))
       .catch((e) => setError(apiError(e)))
       .finally(() => setLoading(false));
@@ -217,7 +217,7 @@ export function TestForm() {
 
   useEffect(() => {
     laboratoriesApi
-      .list({ page: 1, limit: 100 })
+      .listAll()
       .then((r) => setLaboratories(r.data.laboratories || []))
       .catch(() => {});
 

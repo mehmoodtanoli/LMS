@@ -211,6 +211,26 @@ function hasRequiredResultValues(value, parameters = []) {
   return hasValues;
 }
 
+/**
+ * A parameter whose reference range contains a number (e.g. "13-17",
+ * "Up to 200") must get a numeric value. Text ranges ("Negative") take text.
+ * ponytail: inferred from the range; add an explicit parameter type if labs need it.
+ */
+function assertNumericValues(value, parameters = []) {
+  if (!value || typeof value !== "object" || parameters.length === 0) return;
+
+  for (const parameter of parameters) {
+    if (!/\d/.test(parameter.referenceRange || "")) continue;
+    const raw = value[parameter.id] ?? value[parameter.name];
+    if (raw === null || raw === undefined || String(raw).trim() === "") continue;
+    if (!Number.isFinite(Number(String(raw).trim()))) {
+      throw new ApiError(400, `${parameter.name} must be a number.`, {
+        field: parameter.name,
+      });
+    }
+  }
+}
+
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
     throw new ApiError(
@@ -333,6 +353,11 @@ async function createResult({ user, data }) {
   }
 
   const resultData = buildResultData(data);
+
+  assertNumericValues(
+    resultData.value,
+    orderedTestItem.testDefinition?.parameters ?? [],
+  );
 
   if (resultData.status === "FINALIZED") {
     const parameters = orderedTestItem.testDefinition?.parameters ?? [];
@@ -464,7 +489,7 @@ async function getResultById({ user, resultId }) {
   return result;
 }
 
-async function ensureFinalReportForOrder(tx, user, orderId) {
+async function ensureFinalReportForOrder(tx, user, orderId, { amended = false } = {}) {
   await tx.$queryRaw`
     SELECT id
     FROM "test_orders"
@@ -476,6 +501,7 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
     where: { id: orderId },
     select: {
       id: true,
+      orderNumber: true,
       laboratoryId: true,
       status: true,
       notes: true,
@@ -570,7 +596,10 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
     select: { id: true, version: true, status: true, reportNumber: true },
   });
 
-  if (latestReport?.status === "FINAL") {
+  const isIssued = latestReport?.status === "FINAL" || latestReport?.status === "AMENDED";
+
+  // Issued report already matches the results; nothing to do unless a result was amended.
+  if (isIssued && !amended) {
     return latestReport;
   }
 
@@ -598,8 +627,14 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
       reportNumber: await resolveReportNumber(tx, order.laboratoryId, latestReport),
       previousReportId: latestReport ? latestReport.id : null,
       snapshot,
-      status: "FINAL",
+      status: isIssued ? "AMENDED" : "FINAL",
     },
+  });
+
+  // All results are final and the report is issued, so the order is complete.
+  await tx.testOrder.update({
+    where: { id: orderId },
+    data: { status: "COMPLETED" },
   });
 
   await recordAuditLog({
@@ -612,8 +647,8 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
     details: {
       orderId,
       version: nextVersion,
-      status: "FINAL",
-      trigger: "RESULT_FINALIZATION",
+      status: isIssued ? "AMENDED" : "FINAL",
+      trigger: isIssued ? "RESULT_AMENDMENT" : "RESULT_FINALIZATION",
     },
   });
 
@@ -668,6 +703,14 @@ async function updateResult({ user, resultId, data }) {
   const isCurrentlyFinalized = existingResult.status === "FINALIZED";
 
   if (isCurrentlyFinalized) {
+    // Amending changes an issued report, so it is an admin action.
+    if (user.role === "LAB_TECH") {
+      throw new ApiError(
+        403,
+        "Only administrators can amend a finalized result.",
+      );
+    }
+
     if (!data.isAmendment) {
       throw new ApiError(
         409,
@@ -698,6 +741,11 @@ async function updateResult({ user, resultId, data }) {
       requestedStatus: targetStatus,
     });
   }
+
+  assertNumericValues(
+    resultData.value,
+    existingResult.orderedTestItem.testDefinition?.parameters ?? [],
+  );
 
   // Require all configured parameter values before finalization.
   if (targetStatus === "FINALIZED") {
@@ -794,6 +842,7 @@ async function updateResult({ user, resultId, data }) {
           tx,
           user,
           updatedResult.orderedTestItem.order.id,
+          { amended: isCurrentlyFinalized },
         );
       }
 
@@ -806,4 +855,11 @@ async function updateResult({ user, resultId, data }) {
   }
 }
 
-export { createResult, listResults, getResultById, updateResult };
+export {
+  createResult,
+  listResults,
+  getResultById,
+  updateResult,
+  ensureFinalReportForOrder,
+  assertNumericValues,
+};

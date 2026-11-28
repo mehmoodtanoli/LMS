@@ -15,6 +15,7 @@ import {
 } from "../api/resources";
 import { apiError } from "../api/client";
 import { Loading, ErrorMessage } from "../components/Common";
+import { orderCode } from "../utils/orderCode";
 
 function getFormattedToday() {
   const now = new Date();
@@ -36,11 +37,7 @@ function formatTime(isoString) {
   return `${hours}:${mins}`;
 }
 
-function formatOrderNum(order, idx) {
-  if (!order?.id) return `ORD-${String(idx + 1).padStart(3, "0")}`;
-  const short = order.id.replace(/-/g, "").slice(0, 3).toUpperCase();
-  return `ORD-${short || String(idx + 1).padStart(3, "0")}`;
-}
+const formatOrderNum = (order) => orderCode(order);
 
 export default function Dashboard() {
   const [data, setData] = useState(null);

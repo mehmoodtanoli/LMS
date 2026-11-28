@@ -38,6 +38,7 @@ const REPORT_SELECT = {
   order: {
     select: {
       id: true,
+      orderNumber: true,
       status: true,
       notes: true,
       laboratoryId: true,
@@ -221,6 +222,7 @@ async function findAccessibleOrder({ user, orderId }) {
 
     select: {
       id: true,
+      orderNumber: true,
       laboratoryId: true,
       status: true,
       notes: true,
@@ -317,6 +319,7 @@ function buildReportSnapshot(order) {
   return {
     order: {
       id: order.id,
+      orderNumber: order.orderNumber,
       status: order.status,
       notes: order.notes,
       totalAmount: order.totalAmount,

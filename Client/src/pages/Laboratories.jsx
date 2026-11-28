@@ -25,7 +25,7 @@ export default function Laboratories() {
   const load = () => {
     setLoading(true);
     laboratoriesApi
-      .list({ page: 1, limit: 100 })
+      .listAll()
       .then((r) => setLaboratories(r.data.laboratories || []))
       .catch((e) => setError(apiError(e)))
       .finally(() => setLoading(false));

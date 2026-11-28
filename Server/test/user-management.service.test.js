@@ -249,3 +249,28 @@ test("LAB_TECH cannot access user management", async () => {
     /not authorized/
   );
 });
+
+test("SUPERADMIN cannot deactivate self or the last active SUPERADMIN", async () => {
+  const originals = { findFirst: prisma.user.findFirst, count: prisma.user.count, update: prisma.user.update };
+  const otherSuper = "00000000-0000-0000-0000-000000000021";
+  prisma.user.update = async () => {
+    throw new Error("must not update");
+  };
+
+  try {
+    prisma.user.findFirst = async () => ({ id: superadmin.id, role: "SUPERADMIN" });
+    await assert.rejects(
+      setUserStatus({ actor: superadmin, userId: superadmin.id, isActive: false }),
+      /own account/
+    );
+
+    prisma.user.findFirst = async () => ({ id: otherSuper, role: "SUPERADMIN" });
+    prisma.user.count = async () => 0;
+    await assert.rejects(
+      setUserStatus({ actor: superadmin, userId: otherSuper, isActive: false }),
+      /At least one active SUPERADMIN/
+    );
+  } finally {
+    Object.assign(prisma.user, originals);
+  }
+});

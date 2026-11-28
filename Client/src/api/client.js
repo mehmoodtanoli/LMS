@@ -11,7 +11,12 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response?.status === 401) window.dispatchEvent(new Event("lms:unauthorized"));
+    const status = error.response?.status;
+    const message = error.response?.data?.message || "";
+    // Deactivated users and suspended labs get 403; they must be logged out too.
+    if (status === 401 || (status === 403 && /deactivated|suspended/i.test(message))) {
+      window.dispatchEvent(new Event("lms:unauthorized"));
+    }
     return Promise.reject(error);
   },
 );

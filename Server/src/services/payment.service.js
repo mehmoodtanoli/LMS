@@ -35,6 +35,7 @@ const PAYMENT_SELECT = {
   order: {
     select: {
       id: true,
+      orderNumber: true,
       status: true,
       notes: true,
       laboratoryId: true,
@@ -268,6 +269,7 @@ async function findAccessibleTestOrder({ user, orderId, db = prisma }) {
         },
     select: {
       id: true,
+      orderNumber: true,
       laboratoryId: true,
       status: true,
       notes: true,
@@ -378,6 +380,8 @@ async function createPayment({ user, data, idempotencyKey }) {
     throw new ApiError(400, "orderId is required.", { field: "orderId" });
   }
 
+  assertUuid(orderId, "orderId");
+
   const paymentData = buildPaymentData(data);
 
   if (paymentData.amount === undefined) {
@@ -400,6 +404,10 @@ async function createPayment({ user, data, idempotencyKey }) {
     return await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "test_orders" WHERE id = ${orderId}::uuid FOR UPDATE`;
       const accessibleOrder = await findAccessibleTestOrder({ user, orderId, db: tx });
+
+      if (accessibleOrder.status === "CANCELLED") {
+        throw new ApiError(409, "Payments cannot be recorded on a cancelled order.");
+      }
 
       const existingPayment = await tx.payment.findUnique({
         where: { idempotencyKey: normalizedIdempotencyKey },
