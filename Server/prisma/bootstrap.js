@@ -1,7 +1,9 @@
+import "dotenv/config";
+
 import prisma from "../src/config/prisma.js";
 import { hashPassword } from "../src/utils/password.js";
 
-// Production guard (Fixes S5)
+// Production guard
 if (process.env.NODE_ENV === "production") {
   console.error("Refusing to run bootstrap script in production environment.");
   process.exit(1);
@@ -9,15 +11,24 @@ if (process.env.NODE_ENV === "production") {
 
 const SUPERADMIN_EMAIL =
   process.env.BOOTSTRAP_SUPERADMIN_EMAIL || "superadmin@lms.test";
-const SUPERADMIN_PASSWORD =
-  process.env.BOOTSTRAP_SUPERADMIN_PASSWORD || "Superadmin@123";
+
+const SUPERADMIN_PASSWORD = process.env.BOOTSTRAP_SUPERADMIN_PASSWORD;
 
 const LAB_ADMIN_EMAIL =
   process.env.BOOTSTRAP_LAB_ADMIN_EMAIL || "labadmin.a@lms.test";
-const LAB_ADMIN_PASSWORD =
-  process.env.BOOTSTRAP_LAB_ADMIN_PASSWORD || "Labadmin@123";
+
+const LAB_ADMIN_PASSWORD = process.env.BOOTSTRAP_LAB_ADMIN_PASSWORD;
 
 async function main() {
+  // Validate required credentials before database operations
+  if (!SUPERADMIN_PASSWORD || !SUPERADMIN_PASSWORD.trim()) {
+    throw new Error("BOOTSTRAP_SUPERADMIN_PASSWORD is required.");
+  }
+
+  if (!LAB_ADMIN_PASSWORD || !LAB_ADMIN_PASSWORD.trim()) {
+    throw new Error("BOOTSTRAP_LAB_ADMIN_PASSWORD is required.");
+  }
+
   console.log("Bootstrapping LMS database...");
 
   const laboratory = await prisma.laboratory.upsert({
@@ -41,12 +52,7 @@ async function main() {
     where: {
       email: SUPERADMIN_EMAIL,
     },
-    update: {
-      passwordHash: superadminPasswordHash,
-      role: "SUPERADMIN",
-      laboratoryId: null,
-      isActive: true,
-    },
+    update: {},
     create: {
       email: SUPERADMIN_EMAIL,
       passwordHash: superadminPasswordHash,
@@ -62,12 +68,7 @@ async function main() {
     where: {
       email: LAB_ADMIN_EMAIL,
     },
-    update: {
-      passwordHash: labAdminPasswordHash,
-      role: "LAB_ADMIN",
-      laboratoryId: laboratory.id,
-      isActive: true,
-    },
+    update: {},
     create: {
       email: LAB_ADMIN_EMAIL,
       passwordHash: labAdminPasswordHash,
@@ -78,6 +79,7 @@ async function main() {
   });
 
   console.log("Bootstrap completed.");
+
   console.log({
     laboratory: {
       id: laboratory.id,
@@ -99,8 +101,8 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error("Bootstrap failed:", error);
-    process.exit(1);
+    console.error("Bootstrap failed:", error.message);
+    process.exitCode = 1;
   })
   .finally(async () => {
     await prisma.$disconnect();

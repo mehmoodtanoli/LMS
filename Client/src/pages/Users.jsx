@@ -26,7 +26,7 @@ export default function Users() {
   const load = () => {
     setLoading(true);
     adminUsersApi
-      .list({ page: 1, limit: 100 })
+      .listAll()
       .then((r) => setUsers(r.data.users || []))
       .catch((e) => setError(apiError(e)))
       .finally(() => setLoading(false));
@@ -175,7 +175,7 @@ export function UserForm() {
   useEffect(() => {
     if (authUser?.role === "SUPERADMIN") {
       laboratoriesApi
-        .list({ page: 1, limit: 100 })
+        .listAll()
         .then((r) => setLaboratories(r.data.laboratories || []))
         .catch((e) => setError(apiError(e)));
     } else if (authUser?.laboratory) {

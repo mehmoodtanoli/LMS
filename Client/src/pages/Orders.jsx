@@ -13,6 +13,7 @@ import {
   ChevronDown,
   AlertCircle,
 } from "lucide-react";
+import { orderCode } from "../utils/orderCode";
 
 function getTestCategory(test) {
   const code = (test?.code || "").toUpperCase();
@@ -30,12 +31,7 @@ function getTestCategory(test) {
   return "General Diagnostics";
 }
 
-function formatOrderCode(order, index) {
-  if (!order?.id) return `ORD-${String(index + 1).padStart(3, "0")}`;
-  // Clean alphanumeric code
-  const short = order.id.replace(/-/g, "").slice(0, 3).toUpperCase();
-  return `ORD-${short || String(index + 1).padStart(3, "0")}`;
-}
+const formatOrderCode = (order) => orderCode(order);
 
 function getDoctorName(order, index) {
   if (order.notes && order.notes.includes("Dr.")) {
@@ -100,9 +96,9 @@ export default function Orders() {
   const loadData = () => {
     setLoading(true);
     Promise.all([
-      patientsApi.list({ page: 1, limit: 100 }),
-      testsApi.list({ page: 1, limit: 100 }),
-      ordersApi.list({ page: 1, limit: 100 }),
+      patientsApi.listAll(),
+      testsApi.listAll(),
+      ordersApi.listAll(),
     ])
       .then(([p, t, o]) => {
         setPatients(p.data.patients || []);

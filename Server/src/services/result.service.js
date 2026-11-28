@@ -70,6 +70,7 @@ const RESULT_SELECT = {
         select: {
           id: true,
           code: true,
+          specimenType: true,
           name: true,
           price: true,
           laboratoryId: true,
@@ -101,7 +102,7 @@ function assertLabAdminScope(user) {
     if (!user.laboratoryId) {
       throw new ApiError(
         403,
-        "User must be assigned to a laboratory before managing results."
+        "User must be assigned to a laboratory before managing results.",
       );
     }
 
@@ -178,6 +179,59 @@ function buildResultData(data) {
   return resultData;
 }
 
+/**
+ * Checks whether a result contains all required configured parameter values.
+ *
+ * If the test has configured parameters, every parameter must have a value.
+ * If the test has no configured parameters, the existing single-value
+ * validation behavior is retained.
+ */
+function hasRequiredResultValues(value, parameters = []) {
+  if (parameters.length > 0) {
+    return hasCompleteResult({
+      result: {
+        status: "FINALIZED",
+        value,
+      },
+      testDefinition: {
+        parameters,
+      },
+    });
+  }
+
+  const hasValues =
+    value !== null &&
+    value !== undefined &&
+    (typeof value === "object"
+      ? Object.keys(value).length > 0 &&
+        Object.values(value).some(
+          (v) => v !== "" && v !== null && v !== undefined,
+        )
+      : String(value).trim().length > 0);
+
+  return hasValues;
+}
+
+/**
+ * A parameter whose reference range contains a number (e.g. "13-17",
+ * "Up to 200") must get a numeric value. Text ranges ("Negative") take text.
+ * ponytail: inferred from the range; add an explicit parameter type if labs need it.
+ */
+function assertNumericValues(value, parameters = []) {
+  if (!value || typeof value !== "object" || parameters.length === 0) return;
+
+  for (const parameter of parameters) {
+    if (!/\d/.test(parameter.referenceRange || "")) continue;
+    const raw = value[parameter.id] ?? value[parameter.name];
+    if (raw === null || raw === undefined || String(raw).trim() === "") continue;
+    if (!Number.isFinite(Number(String(raw).trim()))) {
+      throw new ApiError(400, `${parameter.name} must be a number.`, {
+        field: parameter.name,
+      });
+    }
+  }
+}
+
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
     throw new ApiError(
@@ -185,7 +239,7 @@ function handlePrismaError(error) {
       "A result already exists for this ordered test item.",
       {
         fields: error.meta?.target ?? null,
-      }
+      },
     );
   }
 
@@ -250,6 +304,7 @@ async function findAccessibleOrderedTestItem({ user, orderedTestItemId }) {
         select: {
           id: true,
           code: true,
+          specimenType: true,
           name: true,
           price: true,
           laboratoryId: true,
@@ -295,16 +350,27 @@ async function createResult({ user, data }) {
   if (orderedTestItem.result) {
     throw new ApiError(
       409,
-      "A result already exists for this ordered test item."
+      "A result already exists for this ordered test item.",
     );
   }
 
   const resultData = buildResultData(data);
 
+  assertNumericValues(
+    resultData.value,
+    orderedTestItem.testDefinition?.parameters ?? [],
+  );
+
   if (resultData.status === "FINALIZED") {
-    if (!resultData.value || Object.keys(resultData.value).length === 0) {
-      throw new ApiError(400, "Cannot finalize result without entering observation values.");
+    const parameters = orderedTestItem.testDefinition?.parameters ?? [];
+
+    if (!hasRequiredResultValues(resultData.value, parameters)) {
+      throw new ApiError(
+        400,
+        "Result cannot be finalized until all required parameter values are entered.",
+      );
     }
+
     resultData.finalizedAt = new Date();
     resultData.finalizedById = user.id;
   }
@@ -330,7 +396,11 @@ async function createResult({ user, data }) {
       });
 
       if (result.status === "FINALIZED") {
-        await ensureFinalReportForOrder(tx, user, result.orderedTestItem.order.id);
+        await ensureFinalReportForOrder(
+          tx,
+          user,
+          result.orderedTestItem.order.id,
+        );
       }
 
       return result;
@@ -421,13 +491,19 @@ async function getResultById({ user, resultId }) {
   return result;
 }
 
-async function ensureFinalReportForOrder(tx, user, orderId) {
-  await tx.$queryRaw`SELECT id FROM "test_orders" WHERE id = ${orderId}::uuid FOR UPDATE`;
+async function ensureFinalReportForOrder(tx, user, orderId, { amended = false } = {}) {
+  await tx.$queryRaw`
+    SELECT id
+    FROM "test_orders"
+    WHERE id = ${orderId}::uuid
+    FOR UPDATE
+  `;
 
   const order = await tx.testOrder.findUnique({
     where: { id: orderId },
     select: {
       id: true,
+      orderNumber: true,
       laboratoryId: true,
       status: true,
       notes: true,
@@ -467,6 +543,7 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
             select: {
               id: true,
               code: true,
+              specimenType: true,
               name: true,
               price: true,
               laboratoryId: true,
@@ -502,11 +579,18 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
     },
   });
 
-  if (!order || order.status === "CANCELLED" || !order.orderedTestItems?.length) {
+  if (
+    !order ||
+    order.status === "CANCELLED" ||
+    !order.orderedTestItems?.length
+  ) {
     return null;
   }
 
-  const allComplete = order.orderedTestItems.every((item) => hasCompleteResult(item));
+  const allComplete = order.orderedTestItems.every((item) =>
+    hasCompleteResult(item),
+  );
+
   if (!allComplete) return null;
 
   const latestReport = await tx.report.findFirst({
@@ -515,7 +599,10 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
     select: { id: true, version: true, status: true, reportNumber: true },
   });
 
-  if (latestReport?.status === "FINAL") {
+  const isIssued = latestReport?.status === "FINAL" || latestReport?.status === "AMENDED";
+
+  // Issued report already matches the results; nothing to do unless a result was amended.
+  if (isIssued && !amended) {
     return latestReport;
   }
 
@@ -543,8 +630,14 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
       reportNumber: await resolveReportNumber(tx, order.laboratoryId, latestReport),
       previousReportId: latestReport ? latestReport.id : null,
       snapshot,
-      status: "FINAL",
+      status: isIssued ? "AMENDED" : "FINAL",
     },
+  });
+
+  // All results are final and the report is issued, so the order is complete.
+  await tx.testOrder.update({
+    where: { id: orderId },
+    data: { status: "COMPLETED" },
   });
 
   await recordAuditLog({
@@ -557,8 +650,8 @@ async function ensureFinalReportForOrder(tx, user, orderId) {
     details: {
       orderId,
       version: nextVersion,
-      status: "FINAL",
-      trigger: "RESULT_FINALIZATION",
+      status: isIssued ? "AMENDED" : "FINAL",
+      trigger: isIssued ? "RESULT_AMENDMENT" : "RESULT_FINALIZATION",
     },
   });
 
@@ -587,6 +680,19 @@ async function updateResult({ user, resultId, data }) {
               laboratoryId: true,
             },
           },
+          testDefinition: {
+            select: {
+              parameters: {
+                orderBy: {
+                  order: "asc",
+                },
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -598,24 +704,39 @@ async function updateResult({ user, resultId, data }) {
 
   // Amend Flow for Finalized Results (Fixes A6)
   const isCurrentlyFinalized = existingResult.status === "FINALIZED";
+
   if (isCurrentlyFinalized) {
+    // Amending changes an issued report, so it is an admin action.
+    if (user.role === "LAB_TECH") {
+      throw new ApiError(
+        403,
+        "Only administrators can amend a finalized result.",
+      );
+    }
+
     if (!data.isAmendment) {
       throw new ApiError(
         409,
-        "This result is finalized and cannot be modified. To amend this result, provide isAmendment: true and an amendmentReason."
+        "This result is finalized and cannot be modified. To amend this result, provide isAmendment: true and an amendmentReason.",
       );
     }
 
     const reason = normalizeString(data.amendmentReason);
+
     if (!reason) {
-      throw new ApiError(400, "amendmentReason is required when amending a finalized result.", {
-        field: "amendmentReason",
-      });
+      throw new ApiError(
+        400,
+        "amendmentReason is required when amending a finalized result.",
+        {
+          field: "amendmentReason",
+        },
+      );
     }
   }
 
   const resultData = buildResultData(data);
   const targetStatus = resultData.status || existingResult.status;
+
   if (!RESULT_TRANSITIONS[existingResult.status]?.includes(targetStatus)) {
     throw new ApiError(409, "Result status cannot move backward.", {
       field: "status",
@@ -624,31 +745,40 @@ async function updateResult({ user, resultId, data }) {
     });
   }
 
-  // Require values to finalize (Fixes A6: "Finalize allowed with every value empty")
-  if (targetStatus === "FINALIZED") {
-    const effectiveValue = resultData.value !== undefined ? resultData.value : existingResult.value;
-    const hasValues =
-      effectiveValue !== null &&
-      effectiveValue !== undefined &&
-      (typeof effectiveValue === "object"
-        ? Object.keys(effectiveValue).length > 0 &&
-          Object.values(effectiveValue).some((v) => v !== "" && v !== null && v !== undefined)
-        : String(effectiveValue).trim().length > 0);
+  assertNumericValues(
+    resultData.value,
+    existingResult.orderedTestItem.testDefinition?.parameters ?? [],
+  );
 
-    if (!hasValues) {
-      throw new ApiError(400, "Result cannot be finalized with empty observation values.");
+  // Require all configured parameter values before finalization.
+  if (targetStatus === "FINALIZED") {
+    const effectiveValue =
+      resultData.value !== undefined ? resultData.value : existingResult.value;
+
+    const parameters =
+      existingResult.orderedTestItem.testDefinition?.parameters ?? [];
+
+    if (!hasRequiredResultValues(effectiveValue, parameters)) {
+      throw new ApiError(
+        400,
+        "Result cannot be finalized until all required parameter values are entered.",
+      );
     }
 
     resultData.finalizedAt = new Date();
     resultData.finalizedById = user.id;
   }
 
-  // If this was an amendment, record amendment metadata in notes and audit log
+  // If this was an amendment, record amendment metadata in notes and audit log.
   if (isCurrentlyFinalized && data.isAmendment) {
-    const auditStamp = `[Amended on ${new Date().toISOString()} by user ${user.email || user.id}: ${data.amendmentReason}]`;
+    const auditStamp = `[Amended on ${new Date().toISOString()} by user ${
+      user.email || user.id
+    }: ${data.amendmentReason}]`;
+
     resultData.notes = existingResult.notes
       ? `${existingResult.notes}\n${auditStamp}`
       : auditStamp;
+
     resultData.finalizedAt = new Date();
     resultData.finalizedById = user.id;
   }
@@ -656,7 +786,7 @@ async function updateResult({ user, resultId, data }) {
   if (Object.keys(resultData).length === 0) {
     throw new ApiError(
       400,
-      "At least one editable result field must be provided."
+      "At least one editable result field must be provided.",
     );
   }
 
@@ -670,22 +800,32 @@ async function updateResult({ user, resultId, data }) {
         WHERE r.id = ${resultId}::uuid
         FOR UPDATE
       `;
+
       const current = await tx.result.findUnique({
         where: { id: resultId },
         select: { status: true, updatedAt: true },
       });
-      if (!current) throw new ApiError(404, "Result not found.");
+
+      if (!current) {
+        throw new ApiError(404, "Result not found.");
+      }
+
       if (
         current.status !== existingResult.status ||
         current.updatedAt.getTime() !== existingResult.updatedAt.getTime()
       ) {
-        throw new ApiError(409, "Result changed while it was being edited. Retry the request.");
+        throw new ApiError(
+          409,
+          "Result changed while it was being edited. Retry the request.",
+        );
       }
+
       const updatedResult = await tx.result.update({
         where: { id: resultId },
         data: resultData,
         select: RESULT_SELECT,
       });
+
       await recordAuditLog({
         db: tx,
         laboratoryId: existingResult.orderedTestItem.order.laboratoryId,
@@ -701,7 +841,12 @@ async function updateResult({ user, resultId, data }) {
       });
 
       if (updatedResult.status === "FINALIZED") {
-        await ensureFinalReportForOrder(tx, user, updatedResult.orderedTestItem.order.id);
+        await ensureFinalReportForOrder(
+          tx,
+          user,
+          updatedResult.orderedTestItem.order.id,
+          { amended: isCurrentlyFinalized },
+        );
       }
 
       return updatedResult;
@@ -713,4 +858,11 @@ async function updateResult({ user, resultId, data }) {
   }
 }
 
-export { createResult, listResults, getResultById, updateResult };
+export {
+  createResult,
+  listResults,
+  getResultById,
+  updateResult,
+  ensureFinalReportForOrder,
+  assertNumericValues,
+};

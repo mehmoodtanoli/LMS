@@ -3,6 +3,9 @@ import prisma from "../config/prisma.js";
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_ATTEMPTS = 5;
+// Per-IP limit is higher: behind the client's /api rewrite many users can share
+// one proxy IP, and the per-email database limit is the main protection.
+const MAX_IP_ATTEMPTS = 50;
 
 const SUPPORT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const SUPPORT_MAX_TICKETS = 5;
@@ -28,14 +31,42 @@ setInterval(() => {
   cleanOldEntries(supportAttempts, SUPPORT_WINDOW_MS);
 }, 5 * 60 * 1000).unref();
 
-export function loginRateLimiter(req, res, next) {
+// Failed logins per email are also kept in the database, because Vercel runs
+// many short-lived instances and in-memory counts are not shared between them.
+// ponytail: only failures count, a success does not reset them; add a reset if users complain.
+async function recentFailedLoginsInDb(email) {
+  return prisma.auditLog.count({
+    where: {
+      action: "LOGIN_FAILED",
+      entityId: email,
+      createdAt: { gte: new Date(Date.now() - WINDOW_MS) },
+    },
+  });
+}
+
+export async function loginRateLimiter(req, res, next) {
+  try {
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    if (email && (await recentFailedLoginsInDb(email)) >= MAX_ATTEMPTS) {
+      throw new ApiError(
+        429,
+        "Too many failed login attempts for this account. Please try again in 15 minutes."
+      );
+    }
+    memoryLoginRateLimiter(req, res, next);
+  } catch (error) {
+    next(error);
+  }
+}
+
+function memoryLoginRateLimiter(req, res, next) {
   const ip = req.ip || req.connection?.remoteAddress || "unknown_ip";
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
 
   const now = Date.now();
 
   const ipRecord = ipAttempts.get(ip);
-  if (ipRecord && ipRecord.count >= MAX_ATTEMPTS && now - ipRecord.firstAttemptAt < WINDOW_MS) {
+  if (ipRecord && ipRecord.count >= MAX_IP_ATTEMPTS && now - ipRecord.firstAttemptAt < WINDOW_MS) {
     const remainingSecs = Math.ceil((WINDOW_MS - (now - ipRecord.firstAttemptAt)) / 1000);
     throw new ApiError(429, `Too many login attempts from this IP. Please try again in ${remainingSecs} seconds.`);
   }
@@ -51,9 +82,22 @@ export function loginRateLimiter(req, res, next) {
   next();
 }
 
-export function recordFailedLogin(req, email) {
+export async function recordFailedLogin(req, email) {
   const ip = req.ip || req.connection?.remoteAddress || "unknown_ip";
   const now = Date.now();
+
+  if (email && typeof email === "string") {
+    await prisma.auditLog
+      .create({
+        data: {
+          action: "LOGIN_FAILED",
+          entityType: "Login",
+          entityId: email.trim().toLowerCase(),
+          details: { ip },
+        },
+      })
+      .catch(() => {}); // never block the 401 response on a logging failure
+  }
 
   const ipRecord = ipAttempts.get(ip) || { count: 0, firstAttemptAt: now };
   if (now - ipRecord.firstAttemptAt > WINDOW_MS) {

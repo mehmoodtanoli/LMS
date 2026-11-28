@@ -2,15 +2,18 @@ import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import { verifyToken } from "../utils/token.js";
+import { readSessionCookie } from "../utils/sessionCookie.js";
 
 const authMiddleware = asyncHandler(async (req, res, next) => {
+  // Browser sessions use the httpOnly cookie; API clients can still send a Bearer token.
   const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.split(" ")[1]
+    : readSessionCookie(req);
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  if (!token) {
     throw new ApiError(401, "Authentication token is missing.");
   }
-
-  const token = authHeader.split(" ")[1];
 
   let decoded;
   try {
@@ -38,6 +41,14 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
 
   if (!user.isActive) {
     throw new ApiError(403, "This account has been deactivated.");
+  }
+
+  // A password change ends every session started before it.
+  if (
+    user.passwordChangedAt &&
+    decoded.iat < Math.floor(user.passwordChangedAt.getTime() / 1000)
+  ) {
+    throw new ApiError(401, "Your password was changed. Please log in again.");
   }
 
   // Reject requests when the laboratory is inactive (SUPERADMIN is exempt) (Fixes A9)

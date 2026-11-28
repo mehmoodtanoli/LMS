@@ -5,6 +5,7 @@ import { trackAnalyticsEvent } from "../analytics";
 import { useAuth } from "../auth/AuthContext";
 import { Empty, ErrorMessage, Loading, date, patientName } from "../components/Common";
 import { Plus, CreditCard, Search, X, Check, ArrowDownLeft, Clock, AlertCircle, Printer } from "lucide-react";
+import { orderCode } from "../utils/orderCode";
 
 function getInitials(name) {
   if (!name) return "PT";
@@ -31,6 +32,7 @@ export default function Payments() {
   const [form, setForm] = useState({
     orderId: "",
     orderTotalAmount: "",
+    adjustmentReason: "",
     amount: "",
     method: "CASH",
     paidAt: new Date().toISOString().split("T")[0],
@@ -47,8 +49,8 @@ export default function Payments() {
   const load = () => {
     setLoading(true);
     Promise.all([
-      paymentsApi.list({ page: 1, limit: 100 }),
-      ordersApi.list({ page: 1, limit: 100 }),
+      paymentsApi.listAll(),
+      ordersApi.listAll(),
     ])
       .then(([p, o]) => {
         setPayments(p.data.payments || []);
@@ -96,6 +98,13 @@ export default function Payments() {
       const res = await paymentsApi.billing(orderId);
       const billing = res.data.billing;
       setSelectedBilling(billing);
+      if (billing && billing.totalAmount === null && billing.catalogTotal > 0) {
+        setForm((prev) => ({
+          ...prev,
+          orderTotalAmount: String(billing.catalogTotal),
+          adjustmentReason: "",
+        }));
+      }
       if (billing && billing.remainingAmount !== null && billing.remainingAmount > 0) {
         setForm((prev) => ({ ...prev, amount: String(billing.remainingAmount) }));
       }
@@ -106,6 +115,13 @@ export default function Payments() {
     }
   };
 
+  // A bill that differs from the test prices needs a reason (discount, extra charge).
+  const billDiffers =
+    selectedBilling?.totalAmount === null &&
+    selectedBilling?.catalogTotal > 0 &&
+    form.orderTotalAmount !== "" &&
+    Number(form.orderTotalAmount) !== selectedBilling.catalogTotal;
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
@@ -115,7 +131,10 @@ export default function Payments() {
       await paymentsApi.create({
         orderId: form.orderId,
         ...(selectedBilling?.totalAmount === null
-          ? { orderTotalAmount: Number(form.orderTotalAmount) }
+          ? {
+              orderTotalAmount: Number(form.orderTotalAmount),
+              ...(billDiffers ? { adjustmentReason: form.adjustmentReason.trim() } : {}),
+            }
           : {}),
         amount: Number(form.amount),
         method: form.method,
@@ -128,6 +147,7 @@ export default function Payments() {
       setForm({
         orderId: "",
         orderTotalAmount: "",
+        adjustmentReason: "",
         amount: "",
         method: "CASH",
         paidAt: new Date().toISOString().split("T")[0],
@@ -150,6 +170,7 @@ export default function Payments() {
     try {
       const response = await ordersApi.finalizeBill(form.orderId, {
         totalAmount: Number(form.orderTotalAmount),
+        ...(billDiffers ? { adjustmentReason: form.adjustmentReason.trim() } : {}),
       });
       setSelectedBilling(response.data.billing);
       setForm((prev) => ({ ...prev, orderTotalAmount: "" }));
@@ -202,6 +223,7 @@ export default function Payments() {
             setForm({
               orderId: "",
               orderTotalAmount: "",
+              adjustmentReason: "",
               amount: "",
               method: "CASH",
               paidAt: new Date().toISOString().split("T")[0],
@@ -296,9 +318,7 @@ export default function Payments() {
               {filteredPayments.map((payment) => {
                 const pName = patientName(payment.order?.patient);
                 const initials = getInitials(pName);
-                const orderCode = payment.order
-                  ? `ORD-${payment.order.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`
-                  : "ORD-001";
+                const paymentOrderCode = orderCode(payment.order);
 
                 return (
                   <tr key={payment.id}>
@@ -314,7 +334,7 @@ export default function Payments() {
                       </div>
                     </td>
 
-                    <td className="cell-order-num">{orderCode}</td>
+                    <td className="cell-order-num">{paymentOrderCode}</td>
 
                     <td className="cell-amount">
                       <span className="amount-val">
@@ -400,7 +420,7 @@ export default function Payments() {
                     const testsStr = o.orderedTestItems
                       ?.map((x) => x.testDefinition?.code || x.testDefinition?.name)
                       .join(", ");
-                    const code = `ORD-${o.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`;
+                    const code = orderCode(o);
                     return (
                       <option key={o.id} value={o.id}>
                         {code} · {name} — {testsStr || "Diagnostic tests"}
@@ -511,11 +531,34 @@ export default function Payments() {
                         onChange={(e) => setForm({ ...form, orderTotalAmount: e.target.value })}
                         placeholder="Enter the final bill amount"
                       />
+                      {selectedBilling.catalogTotal > 0 && (
+                        <span className="field-hint">
+                          Test prices total Rs {selectedBilling.catalogTotal}
+                        </span>
+                      )}
+                      {billDiffers && (
+                        <>
+                          <label htmlFor="bill-adjustment-reason" style={{ marginTop: "8px" }}>
+                            Reason for different amount <span className="required-star">*</span>
+                          </label>
+                          <input
+                            id="bill-adjustment-reason"
+                            required
+                            value={form.adjustmentReason}
+                            onChange={(e) => setForm({ ...form, adjustmentReason: e.target.value })}
+                            placeholder="e.g. 10% staff discount, home collection charge"
+                          />
+                        </>
+                      )}
                       {canFinalizeBills && (
                         <button
                           type="button"
                           className="btn-primary-action"
-                          disabled={submitting || !form.orderTotalAmount}
+                          disabled={
+                            submitting ||
+                            !form.orderTotalAmount ||
+                            (billDiffers && !form.adjustmentReason.trim())
+                          }
                           onClick={finalizeBill}
                           style={{ marginTop: "8px" }}
                         >
@@ -648,7 +691,7 @@ export default function Payments() {
             <div><span>Date &amp; Time</span><strong>{new Date(printReceipt.payment.paidAt).toLocaleString()}</strong></div>
             <div><span>Patient</span><strong>{patientName(printReceipt.payment.order?.patient)}</strong></div>
             <div><span>Identifier</span><strong>{printReceipt.payment.order?.patient?.cnic || "—"}</strong></div>
-            <div><span>Order Ref</span><strong>ORD-{printReceipt.payment.orderId.replace(/-/g, "").slice(0, 8).toUpperCase()}</strong></div>
+            <div><span>Order Ref</span><strong>{orderCode(printReceipt.payment.order)}</strong></div>
           </div>
 
           <div className="thermal-receipt-items">

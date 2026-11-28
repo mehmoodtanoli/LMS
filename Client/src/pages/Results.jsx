@@ -15,6 +15,8 @@ import {
   X,
   FileCheck,
 } from "lucide-react";
+import { orderCode } from "../utils/orderCode";
+import { computeFlag } from "../utils/flags";
 
 // Standard laboratory panel default parameters if DB test parameters are empty
 const DEFAULT_PARAMETERS = {
@@ -76,29 +78,6 @@ function getInitials(name) {
   return parts[0].slice(0, 2).toUpperCase();
 }
 
-function computeFlag(value, refRange) {
-  if (!value || !refRange) return null;
-  const num = parseFloat(value);
-  if (isNaN(num)) return null;
-
-  const rangeMatch = refRange.match(/([\d.]+)\s*-\s*([\d.]+)/);
-  if (rangeMatch) {
-    const low = parseFloat(rangeMatch[1]);
-    const high = parseFloat(rangeMatch[2]);
-    if (!isNaN(low) && num < low) return "Low";
-    if (!isNaN(high) && num > high) return "High";
-    return "Normal";
-  }
-
-  const lessMatch = refRange.match(/<\s*([\d.]+)/);
-  if (lessMatch) {
-    const limit = parseFloat(lessMatch[1]);
-    if (num > limit) return "High";
-    return "Normal";
-  }
-
-  return null;
-}
 
 export default function Results() {
   const { user } = useAuth();
@@ -128,8 +107,8 @@ export default function Results() {
   const loadData = () => {
     setLoading(true);
     Promise.all([
-      ordersApi.list({ page: 1, limit: 100 }),
-      resultsApi.list({ page: 1, limit: 100 }),
+      ordersApi.listAll(),
+      resultsApi.listAll(),
     ])
       .then(([o, r]) => {
         const orderList = o.data.orders || [];
@@ -313,9 +292,7 @@ export default function Results() {
   const pName = patient ? patientName(patient) : "Patient";
   const cnic = patient?.cnic || "—";
   const initials = getInitials(pName);
-  const orderNumStr = selectedOrder
-    ? `ORD-${selectedOrder.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`
-    : "ORD-001";
+  const orderNumStr = orderCode(selectedOrder);
 
   const panelName = activeItem?.testDefinition?.name?.toUpperCase() || "HEMATOLOGY PANEL";
 
@@ -356,7 +333,7 @@ export default function Results() {
                 >
                   {orders.map((o) => {
                     const name = patientName(o.patient);
-                    const code = `ORD-${o.id.replace(/-/g, "").slice(0, 3).toUpperCase()}`;
+                    const code = orderCode(o);
                     return (
                       <option key={o.id} value={o.id}>
                         {code} · {name} ({o.orderedTestItems?.length || 1} test)
@@ -447,6 +424,7 @@ export default function Results() {
                   This result has been FINALIZED and verified for reporting.
                 </span>
               </div>
+              {canFinalize && (
               <button
                 type="button"
                 className="btn-cancel"
@@ -456,6 +434,7 @@ export default function Results() {
                 <Edit3 size={14} />
                 <span>Amend Result</span>
               </button>
+              )}
             </div>
           )}
 

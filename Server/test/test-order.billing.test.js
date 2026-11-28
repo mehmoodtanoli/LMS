@@ -19,7 +19,15 @@ test("order creation does not copy catalog prices into ordered items", async () 
     patient: prisma.patient.findFirst,
     definition: prisma.testDefinition.findFirst,
     order: prisma.testOrder.create,
+    transaction: prisma.$transaction,
+    audit: prisma.auditLog.create,
   };
+  prisma.$transaction = async (callback) =>
+    callback({
+      laboratory: { update: async () => ({ orderCounter: 7 }) },
+      testOrder: { create: (args) => prisma.testOrder.create(args) },
+    });
+  prisma.auditLog.create = async () => ({});
   let orderData;
   prisma.patient.findFirst = async () => ({
     id: patientId,
@@ -87,9 +95,45 @@ test("order creation does not copy catalog prices into ordered items", async () 
     assert.deepEqual(orderData.orderedTestItems.create, [
       { testDefinitionId: testId },
     ]);
+    assert.equal(orderData.orderNumber, 7);
   } finally {
     prisma.patient.findFirst = originals.patient;
     prisma.testDefinition.findFirst = originals.definition;
     prisma.testOrder.create = originals.order;
+    prisma.$transaction = originals.transaction;
+    prisma.auditLog.create = originals.audit;
   }
+});
+
+async function withOrder(order, fn) {
+  const originals = { find: prisma.testOrder.findFirst, update: prisma.testOrder.update };
+  prisma.testOrder.findFirst = async () => order;
+  prisma.testOrder.update = async ({ data }) => ({ ...order, ...data });
+  try {
+    return await fn();
+  } finally {
+    prisma.testOrder.findFirst = originals.find;
+    prisma.testOrder.update = originals.update;
+  }
+}
+
+const orderId = "00000000-0000-0000-0000-000000000041";
+
+test("order status: cancelled and completed orders cannot change", async () => {
+  await withOrder({ id: orderId, laboratoryId: user.laboratoryId, status: "CANCELLED", payments: [] }, () =>
+    assert.rejects(updateTestOrder({ user, orderId, data: { status: "COMPLETED" } }), { statusCode: 409 })
+  );
+  await withOrder({ id: orderId, laboratoryId: user.laboratoryId, status: "COMPLETED", payments: [] }, () =>
+    assert.rejects(updateTestOrder({ user, orderId, data: { status: "PENDING" } }), { statusCode: 409 })
+  );
+});
+
+test("order status: paid orders and lab techs cannot cancel", async () => {
+  await withOrder({ id: orderId, laboratoryId: user.laboratoryId, status: "PENDING", payments: [{ id: "p" }] }, () =>
+    assert.rejects(updateTestOrder({ user, orderId, data: { status: "CANCELLED" } }), /payments/)
+  );
+  const tech = { ...user, role: "LAB_TECH" };
+  await withOrder({ id: orderId, laboratoryId: user.laboratoryId, status: "PENDING", payments: [] }, () =>
+    assert.rejects(updateTestOrder({ user: tech, orderId, data: { status: "CANCELLED" } }), { statusCode: 403 })
+  );
 });

@@ -17,6 +17,7 @@ const VALID_ORDER_STATUSES = [
 
 const TEST_ORDER_SELECT = {
   id: true,
+  orderNumber: true,
   laboratoryId: true,
   patientId: true,
   status: true,
@@ -58,6 +59,7 @@ const TEST_ORDER_SELECT = {
         select: {
           id: true,
           code: true,
+          specimenType: true,
           name: true,
           price: true,
           laboratoryId: true,
@@ -155,6 +157,20 @@ function buildListWhere(user) {
   return {};
 }
 
+// Allowed order status changes. CANCELLED and COMPLETED are final.
+const ORDER_TRANSITIONS = {
+  PENDING: ["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"],
+  IN_PROGRESS: ["IN_PROGRESS", "COMPLETED", "CANCELLED"],
+  COMPLETED: ["COMPLETED"],
+  CANCELLED: ["CANCELLED"],
+};
+
+function assertOrderAdmin(user, action) {
+  if (user.role !== "SUPERADMIN" && user.role !== "LAB_ADMIN") {
+    throw new ApiError(403, `Only administrators can ${action} test orders.`);
+  }
+}
+
 function buildOrderUpdateData(data) {
   const updateData = {};
 
@@ -234,9 +250,11 @@ async function findAccessiblePatient({ user, patientId }) {
       ? {
           id: patientId,
           laboratoryId,
+          isDeleted: false,
         }
       : {
           id: patientId,
+          isDeleted: false,
         },
 
     select: {
@@ -376,10 +394,18 @@ async function createTestOrder({ user, data }) {
     data.status === undefined ? undefined : normalizeOrderStatus(data.status);
 
   try {
-    const order = await prisma.testOrder.create({
+    const order = await prisma.$transaction(async (tx) => {
+      const laboratory = await tx.laboratory.update({
+        where: { id: derivedLaboratoryId },
+        data: { orderCounter: { increment: 1 } },
+        select: { orderCounter: true },
+      });
+
+      return tx.testOrder.create({
       data: {
         laboratoryId: derivedLaboratoryId,
         patientId,
+        orderNumber: laboratory.orderCounter,
 
         ...(status ? { status } : {}),
         ...(notes !== undefined ? { notes } : {}),
@@ -392,6 +418,7 @@ async function createTestOrder({ user, data }) {
       },
 
       select: TEST_ORDER_SELECT,
+      });
     });
 
     await recordAuditLog({
@@ -502,6 +529,7 @@ async function updateTestOrder({ user, orderId, data }) {
       id: true,
       laboratoryId: true,
       status: true,
+      payments: { where: { status: "PAID" }, select: { id: true } },
     },
   });
 
@@ -510,6 +538,27 @@ async function updateTestOrder({ user, orderId, data }) {
   }
 
   const updateData = buildOrderUpdateData(data);
+
+  if (updateData.status && updateData.status !== order.status) {
+    if (!ORDER_TRANSITIONS[order.status]?.includes(updateData.status)) {
+      throw new ApiError(
+        409,
+        `Order status cannot change from ${order.status} to ${updateData.status}.`,
+        { field: "status" }
+      );
+    }
+
+    if (updateData.status === "CANCELLED") {
+      assertOrderAdmin(user, "cancel");
+
+      if (order.payments.length > 0) {
+        throw new ApiError(
+          409,
+          "This order has payments and cannot be cancelled. Refund the payments first."
+        );
+      }
+    }
+  }
 
   if (Object.keys(updateData).length === 0) {
     throw new ApiError(
@@ -546,6 +595,7 @@ async function updateTestOrder({ user, orderId, data }) {
 
 async function deleteTestOrder({ user, orderId }) {
   assertUuid(orderId, "id");
+  assertOrderAdmin(user, "delete");
 
   const order = await prisma.testOrder.findFirst({
     where: {

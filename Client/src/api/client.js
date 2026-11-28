@@ -1,17 +1,18 @@
 import axios from "axios";
 
-const client = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api" });
-
-client.interceptors.request.use((config) => {
-  const token = localStorage.getItem("lms_token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+// Same-origin "/api": Vercel rewrites it to the API (vercel.json), and Vite proxies it in
+// development (vite.config.js). Same origin keeps the httpOnly session cookie first-party.
+const client = axios.create({ baseURL: "/api", withCredentials: true });
 
 client.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response?.status === 401) window.dispatchEvent(new Event("lms:unauthorized"));
+    const status = error.response?.status;
+    const message = error.response?.data?.message || "";
+    // Deactivated users and suspended labs get 403; they must be logged out too.
+    if (status === 401 || (status === 403 && /deactivated|suspended/i.test(message))) {
+      window.dispatchEvent(new Event("lms:unauthorized"));
+    }
     return Promise.reject(error);
   },
 );

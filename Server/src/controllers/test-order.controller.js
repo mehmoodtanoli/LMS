@@ -75,6 +75,7 @@ const finalizeBill = async (req, res) => {
     user: req.user,
     orderId: req.params.id,
     totalAmount: req.body.totalAmount,
+    adjustmentReason: req.body.adjustmentReason,
   });
   const billing = await getOrderBilling({
     user: req.user,

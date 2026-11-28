@@ -16,6 +16,7 @@ model Laboratory {
   logoUrl         String?
   tagline         String?
   reportCounter   Int              @default(0)
+  orderCounter    Int              @default(0)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   isActive        Boolean          @default(true)
@@ -31,16 +32,18 @@ model Laboratory {
 }
 
 model User {
-  id           String      @id @default(uuid()) @db.Uuid
-  email        String      @unique
-  passwordHash String
-  role         UserRole
-  laboratoryId String?     @db.Uuid
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  isActive     Boolean     @default(true)
-  laboratory     Laboratory?     @relation(fields: [laboratoryId], references: [id])
-  supportTickets SupportTicket[]
+  id                String          @id @default(uuid()) @db.Uuid
+  email             String          @unique
+  passwordHash      String
+  role              UserRole
+  laboratoryId      String?         @db.Uuid
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  isActive          Boolean         @default(true)
+  passwordChangedAt DateTime?
+  laboratory        Laboratory?     @relation(fields: [laboratoryId], references: [id])
+  supportTickets    SupportTicket[]
+  finalizedResults  Result[]        @relation("ResultFinalizedBy")
 
   @@index([laboratoryId])
   @@map("users")
@@ -58,6 +61,7 @@ model Patient {
   address      String?
   cnic         String?
   isDeleted    Boolean     @default(false)
+  deletedAt    DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   laboratory   Laboratory  @relation(fields: [laboratoryId], references: [id])
@@ -74,6 +78,7 @@ model TestDefinition {
   code             String
   name             String
   description      String?
+  specimenType     String?
   price            Decimal           @default(0) @db.Decimal(12, 2)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -87,16 +92,16 @@ model TestDefinition {
 }
 
 model TestParameter {
-  id               String         @id @default(uuid()) @db.Uuid
-  testDefinitionId String         @db.Uuid
+  id               String   @id @default(uuid()) @db.Uuid
+  testDefinitionId String   @db.Uuid
   name             String
   unit             String?
   referenceRange   String?
-  order            Int            @default(1)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  order            Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  testDefinition   TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
+  testDefinition TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
 
   @@index([testDefinitionId])
   @@map("test_parameters")
@@ -106,6 +111,7 @@ model TestOrder {
   id               String            @id @default(uuid()) @db.Uuid
   laboratoryId     String            @db.Uuid
   patientId        String            @db.Uuid
+  orderNumber      Int
   status           TestOrderStatus   @default(PENDING)
   notes            String?
   totalAmount      Decimal?          @db.Decimal(12, 2)
@@ -118,6 +124,7 @@ model TestOrder {
   laboratory       Laboratory        @relation(fields: [laboratoryId], references: [id])
   patient          Patient           @relation(fields: [patientId], references: [id])
 
+  @@unique([laboratoryId, orderNumber])
   @@index([laboratoryId])
   @@index([patientId])
   @@index([laboratoryId, patientId])
@@ -156,6 +163,7 @@ model Result {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   orderedTestItem   OrderedTestItem @relation(fields: [orderedTestItemId], references: [id])
+  finalizedBy       User?           @relation("ResultFinalizedBy", fields: [finalizedById], references: [id], onDelete: Restrict)
 
   @@map("results")
 }
@@ -184,20 +192,20 @@ model Report {
 }
 
 model Payment {
-  id           String        @id @default(uuid()) @db.Uuid
-  laboratoryId String        @db.Uuid
-  orderId      String        @db.Uuid
-  status       PaymentStatus @default(UNPAID)
-  amount       Decimal       @db.Decimal(12, 2)
-  method       PaymentMethod  @default(CASH)
-  paidAt       DateTime?
-  notes        String?
-  idempotencyKey     String? @unique @db.Uuid
+  id                 String        @id @default(uuid()) @db.Uuid
+  laboratoryId       String        @db.Uuid
+  orderId            String        @db.Uuid
+  status             PaymentStatus @default(UNPAID)
+  amount             Decimal       @db.Decimal(12, 2)
+  method             PaymentMethod @default(CASH)
+  paidAt             DateTime?
+  notes              String?
+  idempotencyKey     String?       @unique @db.Uuid
   idempotencyPayload Json?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  laboratory   Laboratory    @relation(fields: [laboratoryId], references: [id])
-  order        TestOrder     @relation(fields: [orderId], references: [id])
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  laboratory         Laboratory    @relation(fields: [laboratoryId], references: [id])
+  order              TestOrder     @relation(fields: [orderId], references: [id])
 
   @@index([laboratoryId, orderId])
   @@map("payments")

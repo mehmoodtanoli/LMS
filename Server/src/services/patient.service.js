@@ -341,7 +341,7 @@ async function deletePatient({ user, patientId }) {
   if (patient.testOrders && patient.testOrders.length > 0) {
     await prisma.patient.update({
       where: { id: patientId },
-      data: { isDeleted: true },
+      data: { isDeleted: true, deletedAt: new Date() },
     });
 
     await recordAuditLog({

@@ -33,6 +33,7 @@ const blankTest = {
   code: "",
   name: "",
   description: "",
+  specimenType: "",
   price: "",
   laboratoryId: "",
   parameters: [],
@@ -47,7 +48,7 @@ export default function Tests() {
   const load = () => {
     setLoading(true);
     testsApi
-      .list({ page: 1, limit: 100 })
+      .listAll()
       .then((r) => setTests(r.data.tests || []))
       .catch((e) => setError(apiError(e)))
       .finally(() => setLoading(false));
@@ -217,7 +218,7 @@ export function TestForm() {
 
   useEffect(() => {
     laboratoriesApi
-      .list({ page: 1, limit: 100 })
+      .listAll()
       .then((r) => setLaboratories(r.data.laboratories || []))
       .catch(() => {});
 
@@ -231,6 +232,7 @@ export function TestForm() {
           code: test.code || "",
           name: test.name || "",
           description: test.description || "",
+          specimenType: test.specimenType || "",
           price: test.price !== undefined && test.price !== null ? String(test.price) : "",
           laboratoryId: test.laboratoryId || "",
           parameters: (test.parameters || []).map((parameter) => ({
@@ -293,6 +295,8 @@ export function TestForm() {
       ...(form.description.trim()
         ? { description: form.description.trim() }
         : {}),
+      // Sent even when empty so clearing it in the form clears it on the server.
+      specimenType: form.specimenType.trim() || null,
       ...(form.laboratoryId.trim()
         ? { laboratoryId: form.laboratoryId.trim() }
         : {}),
@@ -410,6 +414,28 @@ export function TestForm() {
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
+          </div>
+
+          {/* Specimen type, printed on the report */}
+          <div className="form-group-clean">
+            <label htmlFor="test-specimen-type">Specimen Type</label>
+            <input
+              id="test-specimen-type"
+              list="specimen-type-options"
+              placeholder="e.g. Serum, Whole Blood (EDTA), Urine"
+              value={form.specimenType}
+              onChange={(e) => setForm({ ...form, specimenType: e.target.value })}
+            />
+            <datalist id="specimen-type-options">
+              <option value="Serum" />
+              <option value="Plasma" />
+              <option value="Whole Blood (EDTA)" />
+              <option value="Citrated Plasma" />
+              <option value="Fluoride Plasma" />
+              <option value="Urine" />
+              <option value="Stool" />
+              <option value="Swab" />
+            </datalist>
           </div>
 
           {/* Parameters Builder */}

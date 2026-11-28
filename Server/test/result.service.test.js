@@ -84,3 +84,72 @@ test("result update preserves a valid forward transition", async () => {
     prisma.$transaction = originalTransaction;
   }
 });
+
+function fakeReportTx(latestReport) {
+  const calls = { created: null, superseded: null, orderStatus: null };
+  const tx = {
+    $queryRaw: async () => [],
+    testOrder: {
+      findUnique: async () => ({
+        id: "order-1",
+        laboratoryId: "lab-1",
+        status: "IN_PROGRESS",
+        laboratory: null,
+        patient: { id: "p1", name: "A" },
+        orderedTestItems: [
+          {
+            testDefinition: { parameters: [{ id: "hb", name: "Hb" }] },
+            result: { status: "FINALIZED", value: { hb: "11" } },
+          },
+        ],
+      }),
+      update: async ({ data }) => { calls.orderStatus = data.status; },
+    },
+    report: {
+      findFirst: async () => latestReport,
+      update: async ({ data }) => { calls.superseded = data.status; },
+      create: async ({ data }) => { calls.created = data; return { id: "r2", ...data }; },
+    },
+    laboratory: { update: async () => ({ reportCounter: 9 }) },
+    auditLog: { create: async () => ({}) },
+  };
+  return { tx, calls };
+}
+
+test("amending a result issues a new AMENDED report version", async () => {
+  const { tx, calls } = fakeReportTx({ id: "r1", version: 1, status: "FINAL", reportNumber: 4 });
+  const { ensureFinalReportForOrder } = await import("../src/services/result.service.js");
+
+  await ensureFinalReportForOrder(tx, { id: "u1", role: "LAB_ADMIN" }, "order-1", { amended: true });
+
+  assert.equal(calls.superseded, "SUPERSEDED");
+  assert.equal(calls.created.status, "AMENDED");
+  assert.equal(calls.created.version, 2);
+  assert.equal(calls.created.reportNumber, 4);
+  assert.equal(calls.orderStatus, "COMPLETED");
+});
+
+test("finalizing again without amendment keeps the issued report", async () => {
+  const latest = { id: "r1", version: 1, status: "FINAL", reportNumber: 4 };
+  const { tx, calls } = fakeReportTx(latest);
+  const { ensureFinalReportForOrder } = await import("../src/services/result.service.js");
+
+  const report = await ensureFinalReportForOrder(tx, { id: "u1", role: "LAB_ADMIN" }, "order-1");
+
+  assert.equal(report, latest);
+  assert.equal(calls.created, null);
+});
+
+test("numeric parameters reject text, text parameters accept it", async () => {
+  const { assertNumericValues } = await import("../src/services/result.service.js");
+  const params = [
+    { id: "hb", name: "Hemoglobin", referenceRange: "13-17" },
+    { id: "chol", name: "Cholesterol", referenceRange: "Up to 200" },
+    { id: "hcv", name: "Anti HCV", referenceRange: "Negative" },
+  ];
+
+  assert.throws(() => assertNumericValues({ hb: "abc" }, params), { statusCode: 400 });
+  assert.throws(() => assertNumericValues({ chol: "12..5" }, params), { statusCode: 400 });
+  assert.doesNotThrow(() => assertNumericValues({ hb: "12.5", chol: "190", hcv: "Positive" }, params));
+  assert.doesNotThrow(() => assertNumericValues({ hb: "" }, params));
+});

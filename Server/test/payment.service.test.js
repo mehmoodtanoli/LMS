@@ -32,7 +32,7 @@ function makeOrder(totalAmount = null, payments = []) {
       {
         id: "00000000-0000-0000-0000-000000000030",
         price: 9999,
-        testDefinition: { id: "test", code: "CBC", name: "CBC", price: 9999 },
+        testDefinition: { id: "test", code: "CBC", name: "CBC", price: 0 },
       },
     ],
     payments,
@@ -632,6 +632,64 @@ test("concurrent first payments serialize on the order lock", async () => {
     assert.equal(results.filter((result) => result.status === "rejected").length, 1);
     assert.equal(mock.state.lockCalls, 2);
     assert.equal(Number(mock.state.order.totalAmount), 5000);
+  } finally {
+    mock.restore();
+  }
+});
+
+function pricedOrder(price) {
+  const order = makeOrder();
+  order.orderedTestItems[0].testDefinition.price = price;
+  return order;
+}
+
+test("bill matching the test prices needs no reason", async () => {
+  const mock = installTransaction(pricedOrder(1500));
+  try {
+    await createPayment({
+      user: admin,
+      data: { orderId, orderTotalAmount: 1500, amount: 1500, method: "CASH" },
+      idempotencyKey: key(90),
+    });
+    assert.equal(Number(mock.state.order.totalAmount), 1500);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("bill different from the test prices requires a reason", async () => {
+  const mock = installTransaction(pricedOrder(1500));
+  try {
+    await assert.rejects(
+      createPayment({
+        user: admin,
+        data: { orderId, orderTotalAmount: 1000, amount: 1000, method: "CASH" },
+        idempotencyKey: key(91),
+      }),
+      /differs from the test prices/
+    );
+    await createPayment({
+      user: admin,
+      data: {
+        orderId,
+        orderTotalAmount: 1000,
+        amount: 1000,
+        method: "CASH",
+        adjustmentReason: "Staff discount",
+      },
+      idempotencyKey: key(92),
+    });
+    assert.equal(Number(mock.state.order.totalAmount), 1000);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("billing reports the catalog total for the order", async () => {
+  const mock = installTransaction(pricedOrder(1500));
+  try {
+    const billing = await getOrderBilling({ user: admin, orderId });
+    assert.equal(billing.catalogTotal, 1500);
   } finally {
     mock.restore();
   }

@@ -37,6 +37,25 @@ function laboratoryStaffWhere(actor) {
   };
 }
 
+// Stops an admin locking everyone out: no self-deactivation or self-demotion,
+// and at least one active SUPERADMIN must remain.
+async function assertNotRemovingLastSuperadmin({ actor, target, deactivating, newRole }) {
+  const losesSuperadmin =
+    target.role === "SUPERADMIN" && (deactivating || (newRole && newRole !== "SUPERADMIN"));
+  if (!losesSuperadmin && !(deactivating && target.id === actor.id)) return;
+
+  if (target.id === actor.id) {
+    throw new ApiError(409, "You cannot deactivate or demote your own account.");
+  }
+
+  const otherActiveSuperadmins = await prisma.user.count({
+    where: { role: "SUPERADMIN", isActive: true, id: { not: target.id } },
+  });
+  if (otherActiveSuperadmins === 0) {
+    throw new ApiError(409, "At least one active SUPERADMIN account must remain.");
+  }
+}
+
 function handlePrismaError(error) {
   if (error?.code === "P2002") {
     throw new ApiError(409, "A user with this email already exists.", {
@@ -108,8 +127,8 @@ async function createUser({ actor, data }) {
     });
   }
 
-  if (!data.password || String(data.password).length < 6) {
-    throw new ApiError(400, "Password must be at least 6 characters long.", {
+  if (!data.password || String(data.password).length < 8) {
+    throw new ApiError(400, "Password must be at least 8 characters long.", {
       field: "password",
     });
   }
@@ -293,8 +312,8 @@ async function updateUser({ actor, userId, data }) {
   }
 
   if (data.password !== undefined && data.password !== "") {
-    if (String(data.password).length < 6) {
-      throw new ApiError(400, "Password must be at least 6 characters long.", {
+    if (String(data.password).length < 8) {
+      throw new ApiError(400, "Password must be at least 8 characters long.", {
         field: "password",
       });
     }
@@ -306,6 +325,8 @@ async function updateUser({ actor, userId, data }) {
     }
 
     updateData.passwordHash = await hashPassword(data.password);
+    // Admin reset ends the user's existing sessions.
+    updateData.passwordChangedAt = new Date();
   }
 
   // Handle role / laboratoryId update (Fixes A8: do not reject if LAB_ADMIN keeps same role/lab)
@@ -321,6 +342,12 @@ async function updateUser({ actor, userId, data }) {
         "LAB_ADMIN users cannot change roles or laboratory assignments."
       );
     }
+
+    await assertNotRemovingLastSuperadmin({
+      actor,
+      target: existingUser,
+      newRole: data.role,
+    });
 
     const role = data.role ?? existingUser.role;
     const laboratoryId = await validateRoleAndLaboratory({
@@ -374,10 +401,14 @@ async function setUserStatus({ actor, userId, isActive }) {
       where: actor.role === "LAB_ADMIN"
         ? { AND: [laboratoryStaffWhere(actor), { id: userId }] }
         : { id: userId },
-      select: { id: true },
+      select: { id: true, role: true },
     });
     if (!target) {
       throw new ApiError(404, "User not found.");
+    }
+
+    if (!isActive) {
+      await assertNotRemovingLastSuperadmin({ actor, target, deactivating: true });
     }
 
     const updated = await prisma.user.update({
