@@ -590,10 +590,48 @@ async function getReportById({ user, reportId }) {
   return report;
 }
 
+// Deletes the whole report (every version of it for that order).
+// The deleted rows are copied into the audit log so the record is not lost.
+async function deleteReport({ user, reportId }) {
+  if (user.role !== "SUPERADMIN" && user.role !== "LAB_ADMIN") {
+    throw new ApiError(403, "Only administrators can delete reports.");
+  }
+
+  const report = await getReportById({ user, reportId });
+
+  return prisma.$transaction(async (tx) => {
+    const versions = await tx.report.findMany({
+      where: { orderId: report.orderId, laboratoryId: report.laboratoryId },
+      select: REPORT_SELECT,
+    });
+
+    await tx.report.deleteMany({
+      where: { orderId: report.orderId, laboratoryId: report.laboratoryId },
+    });
+
+    await recordAuditLog({
+      db: tx,
+      laboratoryId: report.laboratoryId,
+      userId: user.id,
+      action: "REPORT_DELETED",
+      entity: "Report",
+      entityId: report.id,
+      details: {
+        orderId: report.orderId,
+        reportNumber: report.reportNumber,
+        deletedVersions: versions,
+      },
+    });
+
+    return { id: report.id, deletedVersions: versions.length };
+  });
+}
+
 export {
   createReport,
   listReports,
   getReportById,
+  deleteReport,
   hasCompleteResult,
   buildReportSnapshot,
   buildListWhere,

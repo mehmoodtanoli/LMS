@@ -2078,6 +2078,24 @@ a {
   margin: 2px 0 0;
 }
 
+/* Report sign-off: blank lines for wet signature and stamp */
+.report-signoff {
+  display: flex;
+  justify-content: space-between;
+  gap: 32px;
+  margin: 56px 24px 8px;
+}
+.report-signoff-block {
+  text-align: center;
+  width: 220px;
+}
+.report-signoff-note {
+  margin: 12px 24px 0;
+  font-size: 0.7rem;
+  color: #64748b;
+  text-align: center;
+}
+
 /* Bottom Bar */
 .xpert-bottom-bar {
   background: #0c3c6d;
@@ -2158,6 +2176,10 @@ a {
     width: 100% !important;
     max-height: none !important;
     overflow: visible !important;
+    /* Any of these would trap the fixed signature inside the modal. */
+    backdrop-filter: none !important;
+    transform: none !important;
+    filter: none !important;
   }
   #printable-report {
     position: absolute !important;
@@ -2229,6 +2251,48 @@ a {
   #printable-report .xpert-status-high,
   #printable-report .xpert-status-low {
     font-weight: 700;
+  }
+  /* Bolder text: thin strokes fade on office laser printers. */
+  #printable-report {
+    font-weight: 600;
+  }
+  #printable-report .xpert-info-lbl,
+  #printable-report .xpert-results-table th,
+  #printable-report .report-panel-head,
+  #printable-report .xpert-sig-name {
+    font-weight: 800 !important;
+  }
+
+  /*
+   * Signature sits at a fixed place: bottom of every page, just above the
+   * letterhead footer. The tfoot spacer repeats on each page so result rows
+   * never run under it.
+   */
+  #printable-report .report-signoff-wrap {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #fff !important;
+  }
+  #printable-report .xpert-results-table td.report-signoff-spacer {
+    height: 34mm;
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+  #printable-report .report-signoff {
+    margin: 0 !important;
+  }
+  #printable-report .report-signoff-block {
+    width: 65mm;
+  }
+  #printable-report .xpert-sig-line {
+    border-top: 1.5px solid #000 !important;
+  }
+  #printable-report .report-signoff-note {
+    margin: 4mm 0 0 !important;
+    font-size: 8.5pt;
   }
 
   body.printing-thermal-receipt {
